@@ -532,25 +532,29 @@ function placeCar(car: THREE.Group, u: number, offset: number, slip = 0, roll = 
 
 const vehicle = {
   mass: 1200,
-  inertia: 1650,
+  inertia: 2050,
   frontAxle: 1.25,
   rearAxle: 1.25,
   cgHeight: 0.55,
   frontCornerStiffness: 72000,
-  rearCornerStiffness: 68000,
-  frontGrip: 1.18,
-  rearGrip: 1.1,
+  rearCornerStiffness: 74000,
+  frontGrip: 1.2,
+  rearGrip: 1.24,
   engineForce: 9200,
   brakeForce: 15500,
   rollingResistance: 95,
   aerodynamicDrag: 0.46,
-  maxSteer: 0.5,
+  maxSteer: 0.44,
 };
 
 function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean) {
   const speedRatio = THREE.MathUtils.clamp(playerSpeed / MAX_SPEED_MPS, 0, 1);
-  const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.34, speedRatio);
-  const targetSteer = steer * steerLimit;
+  const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.27, speedRatio);
+  const stabilitySteer = THREE.MathUtils.clamp(-yawError * 0.48 - yawRate * 0.13, -0.18, 0.18) * speedRatio;
+  const laneAssist = Math.abs(steer) < 0.45
+    ? THREE.MathUtils.clamp(-lane / (TRACK_WIDTH * 7), -0.08, 0.08) * speedRatio
+    : 0;
+  const targetSteer = THREE.MathUtils.clamp(steer * steerLimit + stabilitySteer + laneAssist, -steerLimit, steerLimit);
   steerAngle = THREE.MathUtils.lerp(steerAngle, targetSteer, 1 - Math.pow(0.0008, dt));
 
   const wheelBase = vehicle.frontAxle + vehicle.rearAxle;
@@ -563,7 +567,7 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const frontSlip = Math.atan2(lateralVelocity + vehicle.frontAxle * yawRate, safeVx) - steerAngle;
   const rearSlip = Math.atan2(lateralVelocity - vehicle.rearAxle * yawRate, safeVx);
   const offRoad = Math.abs(lane) > TRACK_WIDTH * 0.46;
-  const throttleSlip = accelerating && speedRatio < 0.72 ? 0.88 : 1;
+  const throttleSlip = accelerating && speedRatio < 0.72 && Math.abs(steer) > 0.58 ? 0.94 : 1;
   const frontLimit = frontLoad * vehicle.frontGrip * (offRoad ? 0.62 : 1);
   const rearLimit = rearLoad * vehicle.rearGrip * throttleSlip * (offRoad ? 0.55 : 1);
   const frontForce = THREE.MathUtils.clamp(-vehicle.frontCornerStiffness * frontSlip, -frontLimit, frontLimit);
@@ -585,7 +589,10 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
     const yawAccel = (frontForce * Math.cos(steerAngle) * vehicle.frontAxle - rearForce * vehicle.rearAxle) / vehicle.inertia;
     lateralVelocity += lateralAccel * dt;
     yawRate += yawAccel * dt;
-    yawRate *= Math.pow(offRoad ? 0.18 : 0.72, dt);
+    const stability = THREE.MathUtils.lerp(2.2, 4.4, speedRatio);
+    yawRate -= yawError * stability * dt;
+    lateralVelocity -= lateralVelocity * THREE.MathUtils.lerp(0.35, 0.72, speedRatio) * dt;
+    yawRate *= Math.pow(offRoad ? 0.12 : 0.48, dt);
   }
 
   const alongSpeed = playerSpeed * Math.cos(yawError) - lateralVelocity * Math.sin(yawError);
@@ -593,11 +600,12 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   playerProgress += Math.max(0, alongSpeed) * dt / TRACK_LENGTH_METERS;
   lane += acrossSpeed * dt / WORLD_TO_METERS;
   yawError = wrapAngle(yawError + (yawRate - trackCurvature(playerProgress) * alongSpeed) * dt);
+  yawError = THREE.MathUtils.clamp(yawError, -0.62, 0.62);
 
   if (Math.abs(lane) > TRACK_WIDTH * 0.62) {
     const excess = Math.abs(lane) - TRACK_WIDTH * 0.62;
-    lateralVelocity -= Math.sign(lane) * excess * 7.5 * dt;
-    yawError -= Math.sign(lane) * excess * 0.22 * dt;
+    lateralVelocity -= Math.sign(lane) * excess * 11 * dt;
+    yawError -= Math.sign(lane) * excess * 0.42 * dt;
   }
   lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.78, TRACK_WIDTH * 0.78);
   return { frontSlip, rearSlip, offRoad };
