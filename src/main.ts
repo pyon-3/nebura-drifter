@@ -199,8 +199,8 @@ const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
 let smokeCursor = 0;
 let lastSmokeEmit = 0;
 
-type FireworkParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number };
-const fireworkParticles: FireworkParticle[] = Array.from({ length: 100 }, (_, i) => {
+type FireworkParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number; rocket: boolean };
+const fireworkParticles: FireworkParticle[] = Array.from({ length: 140 }, (_, i) => {
   const material = new THREE.SpriteMaterial({
     map: smokeTexture,
     color: [0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4],
@@ -212,10 +212,11 @@ const fireworkParticles: FireworkParticle[] = Array.from({ length: 100 }, (_, i)
   const sprite = new THREE.Sprite(material);
   sprite.visible = false;
   scene.add(sprite);
-  return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1 };
+  return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1, rocket: false };
 });
 let fireworkCursor = 0;
 let lastFirework = 0;
+let lastTouchEnd = 0;
 
 function makeCar(bodyColor: number, rival = false) {
   const car = new THREE.Group();
@@ -326,7 +327,7 @@ function makeCar(bodyColor: number, rival = false) {
 
 const playerCar = makeCar(0x0a5164);
 scene.add(playerCar);
-type Rival = { car: THREE.Group; progress: number; lane: number; speed: number; phase: number };
+type Rival = { car: THREE.Group; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number };
 const rivalColors = [0x171424, 0x42203e, 0x112c4a, 0x3f1623, 0x153d39, 0x422b12, 0x292044];
 const rivals: Rival[] = rivalColors.map((color, i) => {
   const car = makeCar(color, true);
@@ -335,7 +336,9 @@ const rivals: Rival[] = rivalColors.map((color, i) => {
     car,
     progress: 0.045 - i * 0.014,
     lane: (i % 2 ? 1 : -1) * (0.65 + (i % 3) * 0.65),
-    speed: 0.032 + (i % 4) * 0.0018,
+    speedMps: 0,
+    topSpeedMps: (218 + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6,
+    acceleration: 5.1 + (i % 3) * 0.42,
     phase: i * 1.7,
   };
 });
@@ -575,6 +578,20 @@ function requestStart() {
   countdownEnd = performance.now() / 1000 + 3.8;
 }
 addEventListener("pointerdown", e => { if (!replaying) arm(); });
+for (const gesture of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(gesture, e => e.preventDefault(), { passive: false });
+}
+document.addEventListener("touchmove", e => {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+document.addEventListener("dblclick", e => e.preventDefault(), { passive: false });
+document.addEventListener("touchend", e => {
+  const target = e.target as HTMLElement | null;
+  if (target?.tagName === "INPUT") return;
+  const now = performance.now();
+  if (now - lastTouchEnd < 280) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
 steeringEl.addEventListener("pointerdown", e => {
   e.stopPropagation();
   e.preventDefault();
@@ -822,22 +839,47 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
   }
 }
 function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
-  if (now - lastFirework < 1.05) return;
+  const beatPulse = getBgmPulse();
+  if (now - lastFirework < THREE.MathUtils.lerp(1.2, 0.62, beatPulse)) return;
   lastFirework = now;
-  const center = frame.point.clone()
+  const launch = frame.point.clone()
     .addScaledVector(frame.tangent, 45 + Math.random() * 28)
     .addScaledVector(frame.right, (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 22))
-    .setY(14 + Math.random() * 13);
-  for (let i = 0; i < 20; i++) {
+    .setY(0.4);
+  const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
+  particle.life = particle.maxLife = 0.72 + Math.random() * 0.25;
+  particle.rocket = true;
+  particle.sprite.visible = true;
+  particle.sprite.position.copy(launch);
+  particle.sprite.scale.setScalar(0.28 + beatPulse * 0.18);
+  particle.velocity.set((Math.random() - 0.5) * 1.6, 21 + Math.random() * 7, (Math.random() - 0.5) * 1.6);
+  updateFireworkColor(particle, beatPulse, fireworkCursor);
+}
+function burstFirework(center: THREE.Vector3) {
+  const beatPulse = getBgmPulse();
+  const count = 18 + Math.round(beatPulse * 16);
+  for (let i = 0; i < count; i++) {
     const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
-    const angle = (i / 20) * Math.PI * 2 + Math.random() * 0.2;
-    const speed = 4.5 + Math.random() * 4;
+    const angle = (i / count) * Math.PI * 2 + Math.random() * 0.18;
+    const elevation = (Math.random() - 0.36) * 0.72;
+    const speed = 5 + Math.random() * 5 + beatPulse * 4;
     particle.life = particle.maxLife = 1.1 + Math.random() * 0.55;
+    particle.rocket = false;
     particle.sprite.visible = true;
     particle.sprite.position.copy(center);
-    particle.sprite.scale.setScalar(0.24 + Math.random() * 0.16);
-    particle.velocity.set(Math.cos(angle) * speed, (Math.random() - 0.12) * speed, Math.sin(angle) * speed);
+    particle.sprite.scale.setScalar(0.22 + Math.random() * 0.18 + beatPulse * 0.1);
+    particle.velocity.set(Math.cos(angle) * speed, elevation * speed, Math.sin(angle) * speed);
+    updateFireworkColor(particle, beatPulse, i);
   }
+}
+function getBgmPulse() {
+  if (bgm.paused || !Number.isFinite(bgm.currentTime)) return 0.25;
+  const beat = (bgm.currentTime * 2.05) % 1;
+  return Math.pow(1 - beat, 4.2);
+}
+function updateFireworkColor(particle: FireworkParticle, pulse: number, offset: number) {
+  const hue = (bgm.currentTime * 0.07 + offset * 0.11 + pulse * 0.18) % 1;
+  (particle.sprite.material as THREE.SpriteMaterial).color.setHSL(hue, 0.9, 0.58 + pulse * 0.24);
 }
 function updateEffects(dt: number) {
   for (const particle of smokeParticles) {
@@ -853,10 +895,22 @@ function updateEffects(dt: number) {
   for (const particle of fireworkParticles) {
     if (particle.life <= 0) continue;
     particle.life -= dt;
-    particle.velocity.y -= 2.6 * dt;
+    particle.velocity.y -= (particle.rocket ? 8.5 : 2.6) * dt;
     particle.sprite.position.addScaledVector(particle.velocity, dt);
-    (particle.sprite.material as THREE.SpriteMaterial).opacity = Math.pow(Math.max(0, particle.life) / particle.maxLife, 1.7);
-    if (particle.life <= 0) particle.sprite.visible = false;
+    const material = particle.sprite.material as THREE.SpriteMaterial;
+    if (particle.rocket) {
+      const pulse = getBgmPulse();
+      material.opacity = 0.65 + pulse * 0.35;
+      particle.sprite.scale.setScalar(0.22 + pulse * 0.22);
+      updateFireworkColor(particle, pulse, fireworkCursor);
+    } else {
+      material.opacity = Math.pow(Math.max(0, particle.life) / particle.maxLife, 1.7);
+    }
+    if (particle.life <= 0) {
+      if (particle.rocket) burstFirework(particle.sprite.position.clone());
+      particle.rocket = false;
+      particle.sprite.visible = false;
+    }
   }
 }
 
@@ -931,8 +985,15 @@ function animate() {
   updateEffects(dt);
   let leadFrame = trackFrame(0);
   rivals.forEach((rival, i) => {
-    const pace = rival.speed + Math.sin(now * 0.32 + rival.phase) * 0.00033;
-    if (running) rival.progress += pace * dt;
+    const gap = rival.progress - playerProgress;
+    const rubberBand = THREE.MathUtils.clamp(-gap * 3.2, -0.06, 0.045);
+    const targetSpeed = rival.topSpeedMps * (1 + rubberBand + Math.sin(now * 0.32 + rival.phase) * 0.008);
+    if (running) {
+      const speedDelta = targetSpeed - rival.speedMps;
+      const maxDelta = (speedDelta > 0 ? rival.acceleration : 8.5) * dt;
+      rival.speedMps += THREE.MathUtils.clamp(speedDelta, -maxDelta, maxDelta);
+      rival.progress += rival.speedMps * dt / TRACK_LENGTH_METERS;
+    }
     const rivalLane = rival.lane + Math.sin(now * 0.46 + rival.phase) * 0.38;
     const weave = Math.sin(now * 0.6 + rival.phase);
     const frame = placeCar(rival.car, rival.progress, rivalLane, weave * 0.018, -weave * 0.012);
