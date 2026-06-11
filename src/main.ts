@@ -326,6 +326,10 @@ let countdownEnd = 0;
 let lastCountdownValue = "";
 let currentLap = 1;
 let finalLapUntil = 0;
+let replaying = false;
+let replayStart = 0;
+let replayCursor = 0;
+let finishHandled = false;
 let steer = 0;
 let pointer = false;
 let playerProgress = 0;
@@ -335,6 +339,9 @@ let lateralVelocity = 0;
 let score = 0;
 let lastEmit = 0;
 let lastPlayerEmit = 0;
+let lastReplayCapture = 0;
+type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number };
+const replayFrames: ReplayFrame[] = [];
 const title = document.querySelector("#title")!;
 const speedEl = document.querySelector("#speed")!;
 const speedBarEl = document.querySelector<HTMLElement>("#speedBar")!;
@@ -343,9 +350,11 @@ const positionEl = document.querySelector("#position")!;
 const lapEl = document.querySelector("#lap")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
 const announcementEl = document.querySelector<HTMLElement>("#announcement")!;
+const skipReplayEl = document.querySelector<HTMLButtonElement>("#skipReplay")!;
 const gasEl = document.querySelector<HTMLButtonElement>("#gas")!;
 const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
 const bgm = document.querySelector<HTMLAudioElement>("#bgm")!;
+const finishBgm = document.querySelector<HTMLAudioElement>("#finishBgm")!;
 let touchGas = false;
 let touchBrake = false;
 let audioContext: AudioContext | null = null;
@@ -442,18 +451,22 @@ function playCountdownBeep(go = false) {
   oscillator.stop(audioContext.currentTime + (go ? 0.34 : 0.18));
 }
 function requestStart() {
-  if (running || countdownEnd > 0 || playerProgress >= 5) return;
+  if (running || replaying || countdownEnd > 0 || playerProgress >= 5) return;
   armed = true;
   title.classList.add("hidden");
   startSfx();
   countdownEnd = performance.now() / 1000 + 3.8;
 }
-addEventListener("pointerdown", e => { pointer = true; setSteer(e.clientX); arm(); });
+addEventListener("pointerdown", e => { if (replaying) return; pointer = true; setSteer(e.clientX); arm(); });
 addEventListener("pointermove", e => { if (pointer) setSteer(e.clientX); });
 addEventListener("pointerup", () => { pointer = false; steer = 0; });
 addEventListener("pointercancel", () => { pointer = false; steer = 0; });
 const keys = new Set<string>();
-addEventListener("keydown", e => { keys.add(e.code); if (e.code === "ArrowUp" || e.code === "KeyW") requestStart(); else arm(); });
+addEventListener("keydown", e => {
+  if (replaying && e.code === "Escape") { endReplay(); return; }
+  keys.add(e.code);
+  if (e.code === "ArrowUp" || e.code === "KeyW") requestStart(); else arm();
+});
 addEventListener("keyup", e => keys.delete(e.code));
 function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
   el.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); set(true); el.classList.add("active"); if (el === gasEl) requestStart(); else arm(); });
@@ -464,6 +477,30 @@ function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
 }
 bindPedal(gasEl, value => { touchGas = value; });
 bindPedal(brakeEl, value => { touchBrake = value; });
+skipReplayEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); endReplay(); });
+
+function startFinish(now: number) {
+  if (finishHandled) return;
+  finishHandled = true;
+  while (replayFrames.length > 2 && replayFrames[0].time < now - 20) replayFrames.shift();
+  running = false;
+  replaying = replayFrames.length > 1;
+  replayStart = now;
+  replayCursor = 0;
+  playerSpeed = 0;
+  bgm.pause();
+  finishBgm.volume = 0.72;
+  void finishBgm.play().catch(() => {});
+  announcementEl.textContent = "FINISH";
+  announcementEl.className = "show final";
+  skipReplayEl.classList.toggle("show", replaying);
+}
+function endReplay() {
+  replaying = false;
+  skipReplayEl.classList.remove("show");
+  announcementEl.textContent = "FINISH";
+  announcementEl.className = "show final";
+}
 
 const cameraTarget = new THREE.Vector3();
 const cameraPos = new THREE.Vector3();
@@ -521,8 +558,19 @@ function animate() {
   lane = THREE.MathUtils.clamp(lane, -3.9, 3.9);
   const drifting = speedRatio > 0.38 && Math.abs(lateralVelocity) > 1.25;
   if (running && drifting) score += Math.abs(lateralVelocity) * dt * 155;
+  if (running && now - lastReplayCapture > 0.075) {
+    lastReplayCapture = now;
+    replayFrames.push({ time: now, progress: playerProgress, lane, lateralVelocity });
+  }
 
-  const playerFrame = placeCar(playerCar, playerProgress, lane, -lateralVelocity * 0.048, -lateralVelocity * 0.018);
+  let playerFrame = placeCar(playerCar, playerProgress, lane, -lateralVelocity * 0.048, -lateralVelocity * 0.018);
+  if (replaying) {
+    const replayTime = replayFrames[0].time + (now - replayStart) * 0.78;
+    while (replayCursor < replayFrames.length - 2 && replayFrames[replayCursor + 1].time < replayTime) replayCursor++;
+    const frame = replayFrames[replayCursor];
+    playerFrame = placeCar(playerCar, frame.progress, frame.lane, -frame.lateralVelocity * 0.048, -frame.lateralVelocity * 0.018);
+    if (replayTime >= replayFrames[replayFrames.length - 1].time) endReplay();
+  }
   let leadFrame = trackFrame(0);
   rivals.forEach((rival, i) => {
     const pace = rival.speed + Math.sin(now * 0.32 + rival.phase) * 0.00033;
@@ -565,9 +613,16 @@ function animate() {
   updateRibbon(playerBleedRight, playerSamples, "right", 0.22, now, PLAYER_TRAIL_LIFE, 0.38, true);
 
   const cameraShake = running ? Math.sin(now * 43) * (0.008 + speedRatio * 0.035) : 0;
-  cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -lateralVelocity * 0.2).setY(2.3 + cameraShake);
-  camera.position.lerp(cameraPos, 1 - Math.pow(0.0012, dt));
-  cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14 + speedRatio * 5).addScaledVector(playerFrame.right, lateralVelocity * 0.11).setY(0.48);
+  if (replaying) {
+    const orbit = Math.sin((now - replayStart) * 0.32);
+    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -8 + orbit * 2).addScaledVector(playerFrame.right, 7 + orbit * 4).setY(4.2 + Math.abs(orbit) * 1.8);
+    camera.position.lerp(cameraPos, 1 - Math.pow(0.006, dt));
+    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 5).setY(0.65);
+  } else {
+    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -lateralVelocity * 0.2).setY(2.3 + cameraShake);
+    camera.position.lerp(cameraPos, 1 - Math.pow(0.0012, dt));
+    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14 + speedRatio * 5).addScaledVector(playerFrame.right, lateralVelocity * 0.11).setY(0.48);
+  }
   camera.lookAt(cameraTarget);
 
   const targetFov = running ? 68 + speedRatio * 14 + Math.abs(lateralVelocity) * 0.45 : 68;
@@ -586,11 +641,7 @@ function animate() {
   }
   scoreEl.textContent = String(Math.floor(score)).padStart(6, "0");
   const finished = playerProgress >= 5;
-  if (finished) {
-    running = false;
-    playerSpeed = 0;
-    bgm.pause();
-  }
+  if (finished) startFinish(now);
   if (audioContext && engineOsc && engineGain && windGain && tireGain) {
     const t = audioContext.currentTime;
     engineOsc.frequency.setTargetAtTime(42 + speedRatio * 92 + (accelerating ? 12 : 0), t, 0.08);
@@ -598,14 +649,17 @@ function animate() {
     windGain.gain.setTargetAtTime(running ? speedRatio * speedRatio * 0.11 : 0, t, 0.18);
     tireGain.gain.setTargetAtTime(drifting ? Math.min(0.15, Math.abs(lateralVelocity) * 0.025) : 0, t, 0.06);
   }
-  if (now < finalLapUntil && running && countdownEnd === 0) {
+  if (finishHandled) {
+    announcementEl.textContent = "FINISH";
+    announcementEl.className = "show final";
+  } else if (now < finalLapUntil && running && countdownEnd === 0) {
     announcementEl.textContent = "FINAL LAP";
     announcementEl.className = "show final";
   } else if (countdownEnd === 0) {
     announcementEl.className = "";
   }
   statusEl.style.opacity = drifting || armed && !running && countdownEnd === 0 || finished ? "1" : "0";
-  statusEl.textContent = finished ? "RACE COMPLETE" : armed && !running ? "HOLD GAS TO START" : drifting ? "DRIFT // HOLD THE LINE" : "CHASE THE AFTERIMAGE";
+  statusEl.textContent = replaying ? "REPLAY" : finished ? "RACE COMPLETE" : armed && !running ? "HOLD GAS TO START" : drifting ? "DRIFT // HOLD THE LINE" : "CHASE THE AFTERIMAGE";
   renderer.render(scene, camera);
 }
 animate();
