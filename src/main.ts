@@ -7,7 +7,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 2.12;
+renderer.toneMappingExposure = 2.38;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05091a);
@@ -16,8 +16,8 @@ const camera = new THREE.PerspectiveCamera(69, innerWidth / innerHeight, 0.1, 16
 const clock = new THREE.Clock();
 const up = new THREE.Vector3(0, 1, 0);
 
-scene.add(new THREE.HemisphereLight(0x9dbaff, 0x11142d, 1.32));
-const moon = new THREE.DirectionalLight(0xd2fbff, 1.82);
+scene.add(new THREE.HemisphereLight(0xb7caff, 0x1a1e3d, 1.62));
+const moon = new THREE.DirectionalLight(0xe1fbff, 2.18);
 moon.position.set(-12, 18, -8);
 scene.add(moon);
 
@@ -219,18 +219,55 @@ let lastFirework = 0;
 
 function makeCar(bodyColor: number, rival = false) {
   const car = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.48, metalness: 0.55, flatShading: true });
-  const glassMat = new THREE.MeshStandardMaterial({ color: 0x102b46, roughness: 0.25, metalness: 0.65, flatShading: true });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.42, 3.5), bodyMat);
-  body.position.y = 0.45;
+  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.34, metalness: 0.68, flatShading: true });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x09131d, roughness: 0.5, metalness: 0.72, flatShading: true });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x163f5e, roughness: 0.18, metalness: 0.72, flatShading: true });
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x080a0d, roughness: 0.9, metalness: 0.08, flatShading: true });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0x8da4b0, roughness: 0.3, metalness: 0.9, flatShading: true });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.38, 3.25), bodyMat);
+  body.position.y = 0.48;
   car.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.48, 1.55), glassMat);
-  cabin.position.set(0, 0.82, -0.15);
-  cabin.scale.set(0.86, 1, 1);
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.16, 1.05), bodyMat);
+  hood.position.set(0, 0.7, 1.05);
+  hood.rotation.x = -0.055;
+  car.add(hood);
+  const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.16, 0.72), bodyMat);
+  trunk.position.set(0, 0.68, -1.28);
+  trunk.rotation.x = 0.035;
+  car.add(trunk);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.52, 1.45, 1, 1, 1), glassMat);
+  cabin.position.set(0, 0.91, -0.14);
+  cabin.scale.set(0.88, 1, 0.94);
   car.add(cabin);
-  const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.15, 0.18), new THREE.MeshBasicMaterial({ color: 0x142738 }));
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.08, 0.78), bodyMat);
+  roof.position.set(0, 1.2, -0.18);
+  car.add(roof);
+  for (const z of [-0.9, 1.03]) {
+    for (const x of [-0.91, 0.91]) {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10), tireMat);
+      tire.rotation.z = Math.PI / 2;
+      tire.position.set(x, 0.34, z);
+      car.add(tire);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.235, 8), rimMat);
+      rim.rotation.z = Math.PI / 2;
+      rim.position.set(x, 0.34, z);
+      car.add(rim);
+    }
+  }
+  for (const x of [-0.93, 0.93]) {
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 2.45), trimMat);
+    skirt.position.set(x, 0.27, 0);
+    car.add(skirt);
+  }
+  const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.2, 0.22), trimMat);
+  frontBumper.position.set(0, 0.3, 1.68);
+  car.add(frontBumper);
+  const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.2, 0.22), trimMat);
   bumper.position.set(0, 0.32, -1.73);
   car.add(bumper);
+  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.12, 0.025), new THREE.MeshBasicMaterial({ color: 0x020507 }));
+  grille.position.set(0, 0.4, 1.805);
+  car.add(grille);
   for (const x of [-0.57, 0.57]) {
     const tailHousing = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.19, 0.12),
@@ -414,9 +451,25 @@ const gasEl = document.querySelector<HTMLButtonElement>("#gas")!;
 const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
 const bgm = document.querySelector<HTMLAudioElement>("#bgm")!;
 const finishBgm = document.querySelector<HTMLAudioElement>("#finishBgm")!;
+const audioToggleEl = document.querySelector<HTMLButtonElement>("#audioToggle")!;
+const settingsScreenEl = document.querySelector<HTMLElement>("#settingsScreen")!;
+const closeSettingsEl = document.querySelector<HTMLButtonElement>("#closeSettings")!;
+const bgmVolumeEl = document.querySelector<HTMLInputElement>("#bgmVolume")!;
+const sfxVolumeEl = document.querySelector<HTMLInputElement>("#sfxVolume")!;
+const bgmValueEl = document.querySelector<HTMLOutputElement>("#bgmValue")!;
+const sfxValueEl = document.querySelector<HTMLOutputElement>("#sfxValue")!;
 let touchGas = false;
 let touchBrake = false;
 let audioContext: AudioContext | null = null;
+let sfxMaster: GainNode | null = null;
+let bgmVolume = Number(localStorage.getItem("nebura-bgm-volume") ?? 68) / 100;
+let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
+bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
+sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
+bgmValueEl.value = bgmVolumeEl.value;
+sfxValueEl.value = sfxVolumeEl.value;
+bgm.volume = bgmVolume;
+finishBgm.volume = bgmVolume;
 let engineOsc: OscillatorNode | null = null;
 let engineGain: GainNode | null = null;
 let windSource: AudioBufferSourceNode | null = null;
@@ -454,9 +507,9 @@ function startSfx() {
     return;
   }
   audioContext = new AudioContext();
-  const master = audioContext.createGain();
-  master.gain.value = 0.38;
-  master.connect(audioContext.destination);
+  sfxMaster = audioContext.createGain();
+  sfxMaster.gain.value = sfxVolume;
+  sfxMaster.connect(audioContext.destination);
 
   engineOsc = audioContext.createOscillator();
   engineOsc.type = "sawtooth";
@@ -465,7 +518,7 @@ function startSfx() {
   engineFilter.type = "lowpass";
   engineFilter.frequency.value = 420;
   engineGain.gain.value = 0;
-  engineOsc.connect(engineFilter).connect(engineGain).connect(master);
+  engineOsc.connect(engineFilter).connect(engineGain).connect(sfxMaster);
   engineOsc.start();
 
   const noise = makeNoiseBuffer(audioContext);
@@ -477,7 +530,7 @@ function startSfx() {
   windFilter.type = "highpass";
   windFilter.frequency.value = 900;
   windGain.gain.value = 0;
-  windSource.connect(windFilter).connect(windGain).connect(master);
+  windSource.connect(windFilter).connect(windGain).connect(sfxMaster);
   windSource.start();
 
   tireSource = audioContext.createBufferSource();
@@ -489,7 +542,7 @@ function startSfx() {
   tireFilter.frequency.value = 1250;
   tireFilter.Q.value = 1.8;
   tireGain.gain.value = 0;
-  tireSource.connect(tireFilter).connect(tireGain).connect(master);
+  tireSource.connect(tireFilter).connect(tireGain).connect(sfxMaster);
   tireSource.start();
 }
 
@@ -510,7 +563,7 @@ function playCountdownBeep(go = false) {
   oscillator.frequency.value = go ? 880 : 520;
   gain.gain.setValueAtTime(go ? 0.16 : 0.1, audioContext.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + (go ? 0.32 : 0.16));
-  oscillator.connect(gain).connect(audioContext.destination);
+  oscillator.connect(gain).connect(sfxMaster ?? audioContext.destination);
   oscillator.start();
   oscillator.stop(audioContext.currentTime + (go ? 0.34 : 0.18));
 }
@@ -564,6 +617,26 @@ function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
 bindPedal(gasEl, value => { touchGas = value; });
 bindPedal(brakeEl, value => { touchBrake = value; });
 skipReplayEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); endReplay(); });
+audioToggleEl.addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  settingsScreenEl.classList.add("show");
+});
+closeSettingsEl.addEventListener("pointerdown", e => { e.stopPropagation(); settingsScreenEl.classList.remove("show"); });
+settingsScreenEl.addEventListener("pointerdown", e => { if (e.target === settingsScreenEl) settingsScreenEl.classList.remove("show"); });
+for (const input of [bgmVolumeEl, sfxVolumeEl]) input.addEventListener("pointerdown", e => e.stopPropagation());
+bgmVolumeEl.addEventListener("input", () => {
+  bgmVolume = Number(bgmVolumeEl.value) / 100;
+  bgmValueEl.value = bgmVolumeEl.value;
+  bgm.volume = bgmVolume;
+  finishBgm.volume = bgmVolume;
+  localStorage.setItem("nebura-bgm-volume", bgmVolumeEl.value);
+});
+sfxVolumeEl.addEventListener("input", () => {
+  sfxVolume = Number(sfxVolumeEl.value) / 100;
+  sfxValueEl.value = sfxVolumeEl.value;
+  if (sfxMaster && audioContext) sfxMaster.gain.setTargetAtTime(sfxVolume, audioContext.currentTime, 0.04);
+  localStorage.setItem("nebura-sfx-volume", sfxVolumeEl.value);
+});
 
 function startFinish(now: number) {
   if (finishHandled) return;
@@ -575,7 +648,7 @@ function startFinish(now: number) {
   replayCursor = 0;
   playerSpeed = 0;
   bgm.pause();
-  finishBgm.volume = 0.72;
+  finishBgm.volume = bgmVolume;
   void finishBgm.play().catch(() => {});
   announcementEl.textContent = "FINISH";
   announcementEl.className = "show final";
@@ -617,11 +690,64 @@ const vehicle = {
   maxSteer: 0.44,
 };
 
+type DriftState = "grip" | "entry" | "hold" | "recovery";
+let driftState: DriftState = "grip";
+let driftDirection = 0;
+let driftStateTime = 0;
+let gasReleaseTime = 0;
+let previousAccelerating = false;
+let neutralSteerTime = 0;
+
+function updateArcadeDrift(dt: number, accelerating: boolean, braking: boolean) {
+  const speedKmh = playerSpeed * 3.6;
+  const turned = Math.abs(steer) > 0.34;
+  const gasSnap = accelerating && !previousAccelerating && gasReleaseTime > 0.06 && gasReleaseTime < 0.42;
+  if (!accelerating) gasReleaseTime = Math.min(1, gasReleaseTime + dt);
+  else if (!gasSnap) gasReleaseTime = 0;
+
+  if (driftState === "grip" && speedKmh > 100 && turned && (braking || gasSnap)) {
+    driftState = "entry";
+    driftDirection = -Math.sign(steer);
+    driftStateTime = 0;
+    neutralSteerTime = 0;
+  }
+
+  driftStateTime += dt;
+  if (driftState === "entry") {
+    const target = driftDirection * THREE.MathUtils.lerp(0.3, 0.42, Math.abs(steer));
+    yawError = THREE.MathUtils.lerp(yawError, target, 1 - Math.pow(0.003, dt));
+    lateralVelocity = THREE.MathUtils.lerp(lateralVelocity, Math.sin(target) * playerSpeed * 0.45, 1 - Math.pow(0.02, dt));
+    if (driftStateTime > 0.2) {
+      driftState = "hold";
+      driftStateTime = 0;
+    }
+  } else if (driftState === "hold") {
+    const target = driftDirection * THREE.MathUtils.lerp(0.32, 0.48, Math.abs(steer));
+    yawError = THREE.MathUtils.lerp(yawError, target, 1 - Math.pow(0.11, dt));
+    lateralVelocity = THREE.MathUtils.lerp(lateralVelocity, Math.sin(target) * playerSpeed * 0.5, 1 - Math.pow(0.18, dt));
+    neutralSteerTime = Math.abs(steer) < 0.14 ? neutralSteerTime + dt : 0;
+    const counterSteering = Math.sign(steer) === driftDirection && Math.abs(steer) > 0.32;
+    if (counterSteering || neutralSteerTime > 0.5 || driftStateTime > 3.2 || speedKmh < 72) {
+      driftState = "recovery";
+      driftStateTime = 0;
+    }
+  } else if (driftState === "recovery") {
+    yawError = THREE.MathUtils.lerp(yawError, 0, 1 - Math.pow(0.012, dt));
+    lateralVelocity *= Math.pow(0.055, dt);
+    if (driftStateTime > 0.42 || Math.abs(yawError) < 0.045) {
+      driftState = "grip";
+      driftStateTime = 0;
+      driftDirection = 0;
+    }
+  }
+  previousAccelerating = accelerating;
+}
+
 function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean) {
   const speedRatio = THREE.MathUtils.clamp(playerSpeed / MAX_SPEED_MPS, 0, 1);
   const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.27, speedRatio);
   const stabilitySteer = THREE.MathUtils.clamp(-yawError * 0.58 - yawRate * 0.16, -0.22, 0.22) * speedRatio;
-  const assistStrength = THREE.MathUtils.lerp(1, 0.3, Math.abs(steer));
+  const assistStrength = THREE.MathUtils.lerp(1, driftState === "hold" ? 0.52 : 0.3, Math.abs(steer));
   const laneAssist = THREE.MathUtils.clamp(-lane / (TRACK_WIDTH * 5.5), -0.12, 0.12) * speedRatio * assistStrength;
   const driverSteer = -steer * steerLimit;
   const targetSteer = THREE.MathUtils.clamp(driverSteer + stabilitySteer + laneAssist, -steerLimit, steerLimit);
@@ -639,7 +765,8 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const offRoad = Math.abs(lane) > TRACK_WIDTH * 0.46;
   const throttleSlip = accelerating && speedRatio < 0.72 && Math.abs(steer) > 0.58 ? 0.94 : 1;
   const frontLimit = frontLoad * vehicle.frontGrip * (offRoad ? 0.8 : 1);
-  const rearLimit = rearLoad * vehicle.rearGrip * throttleSlip * (offRoad ? 0.74 : 1);
+  const driftRearGrip = driftState === "entry" ? 0.7 : driftState === "hold" ? 0.76 : driftState === "recovery" ? 0.92 : 1;
+  const rearLimit = rearLoad * vehicle.rearGrip * throttleSlip * driftRearGrip * (offRoad ? 0.74 : 1);
   const frontForce = THREE.MathUtils.clamp(-vehicle.frontCornerStiffness * frontSlip, -frontLimit, frontLimit);
   const rearForce = THREE.MathUtils.clamp(-vehicle.rearCornerStiffness * rearSlip, -rearLimit, rearLimit);
 
@@ -659,9 +786,9 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
     const yawAccel = (frontForce * Math.cos(steerAngle) * vehicle.frontAxle - rearForce * vehicle.rearAxle) / vehicle.inertia;
     lateralVelocity += lateralAccel * dt;
     yawRate += yawAccel * dt;
-    const stability = THREE.MathUtils.lerp(2.2, 4.4, speedRatio);
+    const stability = THREE.MathUtils.lerp(2.2, 4.4, speedRatio) * (driftState === "hold" ? 0.2 : driftState === "entry" ? 0.35 : 1);
     yawRate -= yawError * stability * dt;
-    lateralVelocity -= lateralVelocity * THREE.MathUtils.lerp(0.35, 0.72, speedRatio) * dt;
+    lateralVelocity -= lateralVelocity * THREE.MathUtils.lerp(0.35, 0.72, speedRatio) * (driftState === "hold" ? 0.18 : 1) * dt;
     yawRate *= Math.pow(offRoad ? 0.12 : 0.48, dt);
   }
 
@@ -748,7 +875,7 @@ function animate() {
       if (value) playCountdownBeep(value === "GO");
       if (value === "GO") {
         running = true;
-        bgm.volume = 0.68;
+        bgm.volume = bgmVolume;
         void bgm.play().catch(() => {});
       }
     }
@@ -766,11 +893,14 @@ function animate() {
   if (running) {
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     const step = dt / steps;
-    for (let i = 0; i < steps; i++) dynamics = updatePlayerPhysics(step, accelerating, braking);
+    for (let i = 0; i < steps; i++) {
+      dynamics = updatePlayerPhysics(step, accelerating, braking);
+      updateArcadeDrift(step, accelerating, braking);
+    }
   }
   const speedRatio = playerSpeed / MAX_SPEED_MPS;
   const slipAngle = Math.atan2(lateralVelocity, Math.max(1, playerSpeed));
-  const drifting = speedRatio > 0.3 && Math.abs(dynamics.rearSlip) > 0.09;
+  const drifting = driftState !== "grip" || speedRatio > 0.3 && Math.abs(dynamics.rearSlip) > 0.09;
   if (running && drifting) score += Math.abs(lateralVelocity) * dt * 155;
   if (running && now - lastReplayCapture > 0.04) {
     lastReplayCapture = now;
