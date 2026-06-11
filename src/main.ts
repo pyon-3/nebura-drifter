@@ -7,7 +7,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.82;
+renderer.toneMappingExposure = 2.12;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05091a);
@@ -16,15 +16,15 @@ const camera = new THREE.PerspectiveCamera(69, innerWidth / innerHeight, 0.1, 16
 const clock = new THREE.Clock();
 const up = new THREE.Vector3(0, 1, 0);
 
-scene.add(new THREE.HemisphereLight(0x799ce8, 0x080816, 1.05));
-const moon = new THREE.DirectionalLight(0xb6f5ff, 1.55);
+scene.add(new THREE.HemisphereLight(0x9dbaff, 0x11142d, 1.32));
+const moon = new THREE.DirectionalLight(0xd2fbff, 1.82);
 moon.position.set(-12, 18, -8);
 scene.add(moon);
 
 function addWireEnvironment() {
   const city = new THREE.Group();
-  const cyan = new THREE.LineBasicMaterial({ color: 0x55eaff, transparent: true, opacity: 0.34 });
-  const violet = new THREE.LineBasicMaterial({ color: 0xb879ff, transparent: true, opacity: 0.27 });
+  const cyan = new THREE.LineBasicMaterial({ color: 0x70f2ff, transparent: true, opacity: 0.46 });
+  const violet = new THREE.LineBasicMaterial({ color: 0xc997ff, transparent: true, opacity: 0.38 });
   for (let i = 0; i < 72; i++) {
     const angle = (i / 72) * Math.PI * 2;
     const radius = 580 + Math.sin(i * 2.17) * 90;
@@ -50,7 +50,7 @@ function addWireEnvironment() {
   for (let i = 0; i < 32; i++) {
     const f = trackFrame(i / 32);
     const gate = new THREE.Group();
-    const material = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff4a80 : 0x52eaff, transparent: true, opacity: 0.42 });
+    const material = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff6a95 : 0x75f3ff, transparent: true, opacity: 0.55 });
     for (const side of [-1, 1]) {
       const pillar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 5.5, 0.16)), material);
       pillar.position.copy(f.point).addScaledVector(f.right, side * 8.5).setY(2.75);
@@ -116,7 +116,7 @@ function makeRoad() {
     for (const side of [-1, 1]) {
       const p = f.point.clone().addScaledVector(f.right, side * TRACK_WIDTH * 0.5);
       vertices.push(p.x, 0, p.z);
-      const stripe = i % 12 < 6 ? 0.075 : 0.054;
+      const stripe = i % 12 < 6 ? 0.105 : 0.078;
       colors.push(stripe, stripe * 1.08, stripe * 1.5);
       (side < 0 ? edgeL : edgeR).push(p.clone().setY(0.035));
     }
@@ -151,7 +151,7 @@ addWireEnvironment();
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
-  new THREE.MeshBasicMaterial({ color: 0x030611 }),
+  new THREE.MeshBasicMaterial({ color: 0x070b1c }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.035;
@@ -425,11 +425,11 @@ let tireSource: AudioBufferSourceNode | null = null;
 let tireGain: GainNode | null = null;
 
 const lapThemes = [
-  { sky: 0x05091a, fog: 0x05091a, grid: 0x174b69, opacity: 0.1 },
-  { sky: 0x070d20, fog: 0x071327, grid: 0x266b8c, opacity: 0.28 },
-  { sky: 0x10091f, fog: 0x130b27, grid: 0x593b9c, opacity: 0.18 },
-  { sky: 0x07170f, fog: 0x081c17, grid: 0x237b65, opacity: 0.34 },
-  { sky: 0x190712, fog: 0x210811, grid: 0x9b274d, opacity: 0.42 },
+  { sky: 0x09112c, fog: 0x09112c, grid: 0x246f91, opacity: 0.16 },
+  { sky: 0x0c1836, fog: 0x0c1d39, grid: 0x3595b8, opacity: 0.36 },
+  { sky: 0x1d1235, fog: 0x22143e, grid: 0x7b56c5, opacity: 0.27 },
+  { sky: 0x0c281d, fog: 0x0d3027, grid: 0x38a589, opacity: 0.42 },
+  { sky: 0x32101f, fog: 0x3a1020, grid: 0xc43d68, opacity: 0.5 },
 ];
 function applyLapTheme(lap: number) {
   const theme = lapThemes[Math.min(lap - 1, lapThemes.length - 1)];
@@ -455,7 +455,7 @@ function startSfx() {
   }
   audioContext = new AudioContext();
   const master = audioContext.createGain();
-  master.gain.value = 0.31;
+  master.gain.value = 0.38;
   master.connect(audioContext.destination);
 
   engineOsc = audioContext.createOscillator();
