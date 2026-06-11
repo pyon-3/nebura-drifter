@@ -84,7 +84,8 @@ const oval = new THREE.CatmullRomCurve3(
 const TRACK_WIDTH = 11;
 const SEGMENTS = 280;
 const TRACK_LENGTH_METERS = oval.getLength() * 1.3;
-const MAX_SPEED = 288 / (TRACK_LENGTH_METERS * 3.6);
+const WORLD_TO_METERS = 1.3;
+const MAX_SPEED_MPS = 288 / 3.6;
 
 function trackFrame(u: number, lane = 0) {
   const wrapped = ((u % 1) + 1) % 1;
@@ -92,6 +93,17 @@ function trackFrame(u: number, lane = 0) {
   const tangent = oval.getTangentAt(wrapped).normalize();
   const right = new THREE.Vector3().crossVectors(up, tangent).normalize();
   return { point: point.addScaledVector(right, lane), tangent, right };
+}
+function wrapAngle(angle: number) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+function trackCurvature(u: number) {
+  const du = 0.0005;
+  const before = oval.getTangentAt(((u - du) % 1 + 1) % 1);
+  const after = oval.getTangentAt(((u + du) % 1 + 1) % 1);
+  const a0 = Math.atan2(before.x, before.z);
+  const a1 = Math.atan2(after.x, after.z);
+  return wrapAngle(a1 - a0) / (TRACK_LENGTH_METERS * du * 2);
 }
 
 function makeRoad() {
@@ -336,11 +348,15 @@ let playerProgress = 0;
 let playerSpeed = 0;
 let lane = 0;
 let lateralVelocity = 0;
+let yawError = 0;
+let yawRate = 0;
+let steerAngle = 0;
+let longitudinalAccel = 0;
 let score = 0;
 let lastEmit = 0;
 let lastPlayerEmit = 0;
 let lastReplayCapture = 0;
-type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number };
+type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number; yawError: number; yawRate: number };
 const replayFrames: ReplayFrame[] = [];
 const title = document.querySelector("#title")!;
 const speedEl = document.querySelector("#speed")!;
@@ -509,7 +525,82 @@ function placeCar(car: THREE.Group, u: number, offset: number, slip = 0, roll = 
   car.position.copy(f.point);
   car.rotation.y = Math.atan2(f.tangent.x, f.tangent.z) + slip;
   car.rotation.z = roll;
-  return f;
+  const tangent = f.tangent.clone().applyAxisAngle(up, slip).normalize();
+  const right = new THREE.Vector3().crossVectors(up, tangent).normalize();
+  return { point: f.point, tangent, right };
+}
+
+const vehicle = {
+  mass: 1200,
+  inertia: 1650,
+  frontAxle: 1.25,
+  rearAxle: 1.25,
+  cgHeight: 0.55,
+  frontCornerStiffness: 72000,
+  rearCornerStiffness: 68000,
+  frontGrip: 1.18,
+  rearGrip: 1.1,
+  engineForce: 9200,
+  brakeForce: 15500,
+  rollingResistance: 95,
+  aerodynamicDrag: 0.46,
+  maxSteer: 0.5,
+};
+
+function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean) {
+  const speedRatio = THREE.MathUtils.clamp(playerSpeed / MAX_SPEED_MPS, 0, 1);
+  const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.34, speedRatio);
+  const targetSteer = steer * steerLimit;
+  steerAngle = THREE.MathUtils.lerp(steerAngle, targetSteer, 1 - Math.pow(0.0008, dt));
+
+  const wheelBase = vehicle.frontAxle + vehicle.rearAxle;
+  const staticFront = vehicle.rearAxle / wheelBase;
+  const staticRear = vehicle.frontAxle / wheelBase;
+  const weightShift = vehicle.mass * longitudinalAccel * vehicle.cgHeight / wheelBase;
+  const frontLoad = Math.max(1500, vehicle.mass * 9.81 * staticFront - weightShift);
+  const rearLoad = Math.max(1500, vehicle.mass * 9.81 * staticRear + weightShift);
+  const safeVx = Math.max(3, playerSpeed);
+  const frontSlip = Math.atan2(lateralVelocity + vehicle.frontAxle * yawRate, safeVx) - steerAngle;
+  const rearSlip = Math.atan2(lateralVelocity - vehicle.rearAxle * yawRate, safeVx);
+  const offRoad = Math.abs(lane) > TRACK_WIDTH * 0.46;
+  const throttleSlip = accelerating && speedRatio < 0.72 ? 0.88 : 1;
+  const frontLimit = frontLoad * vehicle.frontGrip * (offRoad ? 0.62 : 1);
+  const rearLimit = rearLoad * vehicle.rearGrip * throttleSlip * (offRoad ? 0.55 : 1);
+  const frontForce = THREE.MathUtils.clamp(-vehicle.frontCornerStiffness * frontSlip, -frontLimit, frontLimit);
+  const rearForce = THREE.MathUtils.clamp(-vehicle.rearCornerStiffness * rearSlip, -rearLimit, rearLimit);
+
+  const engine = accelerating ? vehicle.engineForce * (1 - speedRatio * speedRatio * 0.82) : 0;
+  const brake = braking ? vehicle.brakeForce : 0;
+  const drag = vehicle.rollingResistance * playerSpeed + vehicle.aerodynamicDrag * playerSpeed * playerSpeed;
+  const previousSpeed = playerSpeed;
+  const forwardForce = engine - brake - drag - (offRoad ? 3200 : 0);
+  playerSpeed = THREE.MathUtils.clamp(playerSpeed + (forwardForce / vehicle.mass) * dt, 0, MAX_SPEED_MPS);
+  longitudinalAccel = (playerSpeed - previousSpeed) / Math.max(dt, 0.001);
+
+  if (playerSpeed < 1.5) {
+    lateralVelocity *= Math.pow(0.0001, dt);
+    yawRate *= Math.pow(0.0001, dt);
+  } else {
+    const lateralAccel = (frontForce * Math.cos(steerAngle) + rearForce) / vehicle.mass - playerSpeed * yawRate;
+    const yawAccel = (frontForce * Math.cos(steerAngle) * vehicle.frontAxle - rearForce * vehicle.rearAxle) / vehicle.inertia;
+    lateralVelocity += lateralAccel * dt;
+    yawRate += yawAccel * dt;
+    yawRate *= Math.pow(offRoad ? 0.18 : 0.72, dt);
+  }
+
+  const alongSpeed = playerSpeed * Math.cos(yawError) - lateralVelocity * Math.sin(yawError);
+  const acrossSpeed = playerSpeed * Math.sin(yawError) + lateralVelocity * Math.cos(yawError);
+  playerProgress += Math.max(0, alongSpeed) * dt / TRACK_LENGTH_METERS;
+  lane += acrossSpeed * dt / WORLD_TO_METERS;
+  yawError = wrapAngle(yawError + (yawRate - trackCurvature(playerProgress) * alongSpeed) * dt);
+
+  if (Math.abs(lane) > TRACK_WIDTH * 0.62) {
+    const excess = Math.abs(lane) - TRACK_WIDTH * 0.62;
+    lateralVelocity -= Math.sign(lane) * excess * 7.5 * dt;
+    yawError -= Math.sign(lane) * excess * 0.22 * dt;
+  }
+  lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.78, TRACK_WIDTH * 0.78);
+  return { frontSlip, rearSlip, offRoad };
 }
 
 function animate() {
@@ -541,34 +632,28 @@ function animate() {
   if (!pointer && keySteer) steer = keySteer;
   if (!pointer && !keySteer) steer *= Math.pow(0.001, dt);
 
+  let dynamics = { frontSlip: 0, rearSlip: 0, offRoad: false };
   if (running) {
-    if (accelerating) playerSpeed += 0.00575 * dt;
-    else playerSpeed -= 0.00066 * dt;
-    if (braking) playerSpeed -= 0.0116 * dt;
-    playerSpeed = THREE.MathUtils.clamp(playerSpeed, 0.002, MAX_SPEED);
+    const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
+    const step = dt / steps;
+    for (let i = 0; i < steps; i++) dynamics = updatePlayerPhysics(step, accelerating, braking);
   }
-  if (running) playerProgress += playerSpeed * dt;
-  const speedRatio = playerSpeed / MAX_SPEED;
-  const steerAuthority = THREE.MathUtils.lerp(6.3, 4.3, speedRatio);
-  const targetLateralVelocity = steer * steerAuthority;
-  const steeringResponse = pointer || keySteer ? THREE.MathUtils.lerp(0.006, 0.022, speedRatio) : 0.00002;
-  lateralVelocity = THREE.MathUtils.lerp(lateralVelocity, targetLateralVelocity, 1 - Math.pow(steeringResponse, dt));
-  lane += lateralVelocity * dt;
-  if (Math.abs(steer) < 0.04) lane *= Math.pow(0.78, dt);
-  lane = THREE.MathUtils.clamp(lane, -3.9, 3.9);
-  const drifting = speedRatio > 0.38 && Math.abs(lateralVelocity) > 1.25;
+  const speedRatio = playerSpeed / MAX_SPEED_MPS;
+  const slipAngle = Math.atan2(lateralVelocity, Math.max(1, playerSpeed));
+  const drifting = speedRatio > 0.3 && Math.abs(dynamics.rearSlip) > 0.09;
   if (running && drifting) score += Math.abs(lateralVelocity) * dt * 155;
   if (running && now - lastReplayCapture > 0.075) {
     lastReplayCapture = now;
-    replayFrames.push({ time: now, progress: playerProgress, lane, lateralVelocity });
+    replayFrames.push({ time: now, progress: playerProgress, lane, lateralVelocity, yawError, yawRate });
   }
 
-  let playerFrame = placeCar(playerCar, playerProgress, lane, -lateralVelocity * 0.048, -lateralVelocity * 0.018);
+  let playerFrame = placeCar(playerCar, playerProgress, lane, yawError, -lateralVelocity * 0.012);
+  playerCar.rotation.x = THREE.MathUtils.clamp(-longitudinalAccel * 0.006, -0.045, 0.045);
   if (replaying) {
     const replayTime = replayFrames[0].time + (now - replayStart) * 0.78;
     while (replayCursor < replayFrames.length - 2 && replayFrames[replayCursor + 1].time < replayTime) replayCursor++;
     const frame = replayFrames[replayCursor];
-    playerFrame = placeCar(playerCar, frame.progress, frame.lane, -frame.lateralVelocity * 0.048, -frame.lateralVelocity * 0.018);
+    playerFrame = placeCar(playerCar, frame.progress, frame.lane, frame.yawError, -frame.lateralVelocity * 0.012);
     if (replayTime >= replayFrames[replayFrames.length - 1].time) endReplay();
   }
   let leadFrame = trackFrame(0);
@@ -619,7 +704,8 @@ function animate() {
     camera.position.lerp(cameraPos, 1 - Math.pow(0.006, dt));
     cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 5).setY(0.65);
   } else {
-    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -lateralVelocity * 0.2).setY(2.3 + cameraShake);
+    const cameraSlip = THREE.MathUtils.clamp(lateralVelocity * 0.16, -2.2, 2.2);
+    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -cameraSlip).setY(2.3 + cameraShake);
     camera.position.lerp(cameraPos, 1 - Math.pow(0.0012, dt));
     cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14 + speedRatio * 5).addScaledVector(playerFrame.right, lateralVelocity * 0.11).setY(0.48);
   }
@@ -628,7 +714,7 @@ function animate() {
   const targetFov = running ? 68 + speedRatio * 14 + Math.abs(lateralVelocity) * 0.45 : 68;
   camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 1 - Math.pow(0.01, dt));
   camera.updateProjectionMatrix();
-  const displaySpeed = Math.round(playerSpeed * TRACK_LENGTH_METERS * 3.6);
+  const displaySpeed = Math.round(playerSpeed * 3.6);
   speedEl.textContent = String(displaySpeed).padStart(3, "0");
   speedBarEl.style.width = `${speedRatio * 100}%`;
   positionEl.textContent = String(1 + rivals.filter(rival => rival.progress > playerProgress).length);

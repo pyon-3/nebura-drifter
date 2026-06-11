@@ -26,3 +26,10 @@ Production build:
 npm run build
 npm run inline
 ```
+
+## Vehicle Dynamics
+
+The lightweight dynamic bicycle model is informed by the MIT-licensed
+[carphysics2d](https://github.com/spacejack/carphysics2d) project. It models
+front/rear slip angles, axle load transfer, lateral tire-force limits,
+aerodynamic drag, rolling resistance, and speed-sensitive steering.
