@@ -7,7 +7,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.5;
+renderer.toneMappingExposure = 1.82;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05091a);
@@ -16,15 +16,15 @@ const camera = new THREE.PerspectiveCamera(69, innerWidth / innerHeight, 0.1, 16
 const clock = new THREE.Clock();
 const up = new THREE.Vector3(0, 1, 0);
 
-scene.add(new THREE.HemisphereLight(0x4b69a8, 0x030308, 0.72));
-const moon = new THREE.DirectionalLight(0x8eeaff, 1.15);
+scene.add(new THREE.HemisphereLight(0x799ce8, 0x080816, 1.05));
+const moon = new THREE.DirectionalLight(0xb6f5ff, 1.55);
 moon.position.set(-12, 18, -8);
 scene.add(moon);
 
 function addWireEnvironment() {
   const city = new THREE.Group();
-  const cyan = new THREE.LineBasicMaterial({ color: 0x2cc9e8, transparent: true, opacity: 0.22 });
-  const violet = new THREE.LineBasicMaterial({ color: 0x9354ff, transparent: true, opacity: 0.16 });
+  const cyan = new THREE.LineBasicMaterial({ color: 0x55eaff, transparent: true, opacity: 0.34 });
+  const violet = new THREE.LineBasicMaterial({ color: 0xb879ff, transparent: true, opacity: 0.27 });
   for (let i = 0; i < 72; i++) {
     const angle = (i / 72) * Math.PI * 2;
     const radius = 580 + Math.sin(i * 2.17) * 90;
@@ -50,7 +50,7 @@ function addWireEnvironment() {
   for (let i = 0; i < 32; i++) {
     const f = trackFrame(i / 32);
     const gate = new THREE.Group();
-    const material = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff3370 : 0x35dff4, transparent: true, opacity: 0.28 });
+    const material = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff4a80 : 0x52eaff, transparent: true, opacity: 0.42 });
     for (const side of [-1, 1]) {
       const pillar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 5.5, 0.16)), material);
       pillar.position.copy(f.point).addScaledVector(f.right, side * 8.5).setY(2.75);
@@ -116,7 +116,7 @@ function makeRoad() {
     for (const side of [-1, 1]) {
       const p = f.point.clone().addScaledVector(f.right, side * TRACK_WIDTH * 0.5);
       vertices.push(p.x, 0, p.z);
-      const stripe = i % 12 < 6 ? 0.052 : 0.038;
+      const stripe = i % 12 < 6 ? 0.075 : 0.054;
       colors.push(stripe, stripe * 1.08, stripe * 1.5);
       (side < 0 ? edgeL : edgeR).push(p.clone().setY(0.035));
     }
@@ -151,7 +151,7 @@ addWireEnvironment();
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
-  new THREE.MeshBasicMaterial({ color: 0x010207 }),
+  new THREE.MeshBasicMaterial({ color: 0x030611 }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.035;
@@ -175,6 +175,47 @@ for (let i = 0; i < 260; i++) {
 }
 starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPos, 3));
 scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9ac7ff, size: 1.15, transparent: true, opacity: 0.55 })));
+
+type SmokeParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number };
+const smokeTexture = (() => {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = textureCanvas.height = 64;
+  const context = textureCanvas.getContext("2d")!;
+  const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 30);
+  gradient.addColorStop(0, "rgba(170,235,255,.55)");
+  gradient.addColorStop(0.45, "rgba(110,150,190,.22)");
+  gradient.addColorStop(1, "rgba(40,60,90,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(textureCanvas);
+})();
+const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
+  const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  const sprite = new THREE.Sprite(material);
+  sprite.visible = false;
+  scene.add(sprite);
+  return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1 };
+});
+let smokeCursor = 0;
+let lastSmokeEmit = 0;
+
+type FireworkParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number };
+const fireworkParticles: FireworkParticle[] = Array.from({ length: 100 }, (_, i) => {
+  const material = new THREE.SpriteMaterial({
+    map: smokeTexture,
+    color: [0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4],
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.visible = false;
+  scene.add(sprite);
+  return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1 };
+});
+let fireworkCursor = 0;
+let lastFirework = 0;
 
 function makeCar(bodyColor: number, rival = false) {
   const car = new THREE.Group();
@@ -414,7 +455,7 @@ function startSfx() {
   }
   audioContext = new AudioContext();
   const master = audioContext.createGain();
-  master.gain.value = 0.24;
+  master.gain.value = 0.31;
   master.connect(audioContext.destination);
 
   engineOsc = audioContext.createOscillator();
@@ -553,7 +594,7 @@ function placeCar(car: THREE.Group, u: number, offset: number, slip = 0, roll = 
   const f = trackFrame(u, offset);
   car.position.copy(f.point);
   car.rotation.y = Math.atan2(f.tangent.x, f.tangent.z) + slip;
-  car.rotation.z = roll;
+  car.rotation.z = THREE.MathUtils.clamp(roll, -0.07, 0.07);
   const tangent = f.tangent.clone().applyAxisAngle(up, slip).normalize();
   const right = new THREE.Vector3().crossVectors(up, tangent).normalize();
   return { point: f.point, tangent, right };
@@ -567,8 +608,8 @@ const vehicle = {
   cgHeight: 0.55,
   frontCornerStiffness: 72000,
   rearCornerStiffness: 74000,
-  frontGrip: 1.2,
-  rearGrip: 1.24,
+  frontGrip: 1.32,
+  rearGrip: 1.36,
   engineForce: 9200,
   brakeForce: 15500,
   rollingResistance: 45,
@@ -579,11 +620,11 @@ const vehicle = {
 function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean) {
   const speedRatio = THREE.MathUtils.clamp(playerSpeed / MAX_SPEED_MPS, 0, 1);
   const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.27, speedRatio);
-  const stabilitySteer = THREE.MathUtils.clamp(-yawError * 0.48 - yawRate * 0.13, -0.18, 0.18) * speedRatio;
-  const laneAssist = Math.abs(steer) < 0.45
-    ? THREE.MathUtils.clamp(-lane / (TRACK_WIDTH * 7), -0.08, 0.08) * speedRatio
-    : 0;
-  const targetSteer = THREE.MathUtils.clamp(steer * steerLimit + stabilitySteer + laneAssist, -steerLimit, steerLimit);
+  const stabilitySteer = THREE.MathUtils.clamp(-yawError * 0.58 - yawRate * 0.16, -0.22, 0.22) * speedRatio;
+  const assistStrength = THREE.MathUtils.lerp(1, 0.3, Math.abs(steer));
+  const laneAssist = THREE.MathUtils.clamp(-lane / (TRACK_WIDTH * 5.5), -0.12, 0.12) * speedRatio * assistStrength;
+  const driverSteer = -steer * steerLimit;
+  const targetSteer = THREE.MathUtils.clamp(driverSteer + stabilitySteer + laneAssist, -steerLimit, steerLimit);
   steerAngle = THREE.MathUtils.lerp(steerAngle, targetSteer, 1 - Math.pow(0.0008, dt));
 
   const wheelBase = vehicle.frontAxle + vehicle.rearAxle;
@@ -597,8 +638,8 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const rearSlip = Math.atan2(lateralVelocity - vehicle.rearAxle * yawRate, safeVx);
   const offRoad = Math.abs(lane) > TRACK_WIDTH * 0.46;
   const throttleSlip = accelerating && speedRatio < 0.72 && Math.abs(steer) > 0.58 ? 0.94 : 1;
-  const frontLimit = frontLoad * vehicle.frontGrip * (offRoad ? 0.62 : 1);
-  const rearLimit = rearLoad * vehicle.rearGrip * throttleSlip * (offRoad ? 0.55 : 1);
+  const frontLimit = frontLoad * vehicle.frontGrip * (offRoad ? 0.8 : 1);
+  const rearLimit = rearLoad * vehicle.rearGrip * throttleSlip * (offRoad ? 0.74 : 1);
   const frontForce = THREE.MathUtils.clamp(-vehicle.frontCornerStiffness * frontSlip, -frontLimit, frontLimit);
   const rearForce = THREE.MathUtils.clamp(-vehicle.rearCornerStiffness * rearSlip, -rearLimit, rearLimit);
 
@@ -631,13 +672,65 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   yawError = wrapAngle(yawError + (yawRate - trackCurvature(playerProgress) * alongSpeed) * dt);
   yawError = THREE.MathUtils.clamp(yawError, -0.62, 0.62);
 
-  if (Math.abs(lane) > TRACK_WIDTH * 0.62) {
-    const excess = Math.abs(lane) - TRACK_WIDTH * 0.62;
-    lateralVelocity -= Math.sign(lane) * excess * 11 * dt;
-    yawError -= Math.sign(lane) * excess * 0.42 * dt;
+  if (Math.abs(lane) > TRACK_WIDTH * 0.48) {
+    const excess = Math.abs(lane) - TRACK_WIDTH * 0.48;
+    const recovery = offRoad ? 5.2 : 2.5;
+    lateralVelocity -= Math.sign(lane) * excess * recovery * dt;
+    yawError -= Math.sign(lane) * excess * (offRoad ? 0.2 : 0.1) * dt;
   }
-  lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.78, TRACK_WIDTH * 0.78);
+  lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.7, TRACK_WIDTH * 0.7);
   return { frontSlip, rearSlip, offRoad };
+}
+
+function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
+  if (now - lastSmokeEmit < 0.035) return;
+  lastSmokeEmit = now;
+  for (const side of [-1, 1]) {
+    const particle = smokeParticles[smokeCursor++ % smokeParticles.length];
+    particle.life = particle.maxLife = 0.7 + Math.random() * 0.45;
+    particle.sprite.visible = true;
+    particle.sprite.position.copy(frame.point).addScaledVector(frame.tangent, -1.55).addScaledVector(frame.right, side * 0.62).setY(0.18);
+    particle.sprite.scale.setScalar(0.8);
+    particle.velocity.copy(frame.tangent).multiplyScalar(-0.8 - Math.random() * 0.8).addScaledVector(frame.right, side * (Math.random() - 0.5)).setY(0.35 + Math.random() * 0.35);
+  }
+}
+function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
+  if (now - lastFirework < 1.05) return;
+  lastFirework = now;
+  const center = frame.point.clone()
+    .addScaledVector(frame.tangent, 45 + Math.random() * 28)
+    .addScaledVector(frame.right, (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 22))
+    .setY(14 + Math.random() * 13);
+  for (let i = 0; i < 20; i++) {
+    const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
+    const angle = (i / 20) * Math.PI * 2 + Math.random() * 0.2;
+    const speed = 4.5 + Math.random() * 4;
+    particle.life = particle.maxLife = 1.1 + Math.random() * 0.55;
+    particle.sprite.visible = true;
+    particle.sprite.position.copy(center);
+    particle.sprite.scale.setScalar(0.24 + Math.random() * 0.16);
+    particle.velocity.set(Math.cos(angle) * speed, (Math.random() - 0.12) * speed, Math.sin(angle) * speed);
+  }
+}
+function updateEffects(dt: number) {
+  for (const particle of smokeParticles) {
+    if (particle.life <= 0) continue;
+    particle.life -= dt;
+    particle.sprite.position.addScaledVector(particle.velocity, dt);
+    particle.velocity.multiplyScalar(Math.pow(0.25, dt));
+    const age = 1 - Math.max(0, particle.life) / particle.maxLife;
+    particle.sprite.scale.setScalar(0.8 + age * 2.4);
+    (particle.sprite.material as THREE.SpriteMaterial).opacity = Math.sin(Math.min(1, age) * Math.PI) * 0.24;
+    if (particle.life <= 0) particle.sprite.visible = false;
+  }
+  for (const particle of fireworkParticles) {
+    if (particle.life <= 0) continue;
+    particle.life -= dt;
+    particle.velocity.y -= 2.6 * dt;
+    particle.sprite.position.addScaledVector(particle.velocity, dt);
+    (particle.sprite.material as THREE.SpriteMaterial).opacity = Math.pow(Math.max(0, particle.life) / particle.maxLife, 1.7);
+    if (particle.life <= 0) particle.sprite.visible = false;
+  }
 }
 
 function animate() {
@@ -685,7 +778,7 @@ function animate() {
   }
 
   let playerFrame = placeCar(playerCar, playerProgress, lane, yawError, -lateralVelocity * 0.012);
-  playerCar.rotation.x = THREE.MathUtils.clamp(-longitudinalAccel * 0.006, -0.045, 0.045);
+  playerCar.rotation.x = THREE.MathUtils.clamp(-longitudinalAccel * 0.004, -0.032, 0.032);
   if (replaying) {
     const replayTime = replayFrames[0].time + (now - replayStart) * 0.78;
     while (replayCursor < replayFrames.length - 2 && replayFrames[replayCursor + 1].time < replayTime) replayCursor++;
@@ -703,6 +796,9 @@ function animate() {
     playerFrame = placeCar(playerCar, replayProgress, replayLane, replayYaw, -replayLateralVelocity * 0.012);
     if (replayTime >= replayFrames[replayFrames.length - 1].time) endReplay();
   }
+  if (running && drifting) emitDriftSmoke(playerFrame, now);
+  if (running && currentLap === 5) spawnFirework(playerFrame, now);
+  updateEffects(dt);
   let leadFrame = trackFrame(0);
   rivals.forEach((rival, i) => {
     const pace = rival.speed + Math.sin(now * 0.32 + rival.phase) * 0.00033;
@@ -781,7 +877,7 @@ function animate() {
     engineOsc.frequency.setTargetAtTime(42 + speedRatio * 92 + (accelerating ? 12 : 0), t, 0.08);
     engineGain.gain.setTargetAtTime(running ? 0.08 + speedRatio * 0.18 : 0, t, 0.12);
     windGain.gain.setTargetAtTime(running ? speedRatio * speedRatio * 0.11 : 0, t, 0.18);
-    tireGain.gain.setTargetAtTime(drifting ? Math.min(0.15, Math.abs(lateralVelocity) * 0.025) : 0, t, 0.06);
+    tireGain.gain.setTargetAtTime(drifting ? Math.min(0.22, Math.abs(lateralVelocity) * 0.032) : 0, t, 0.06);
   }
   if (finishHandled) {
     announcementEl.textContent = "FINISH";
