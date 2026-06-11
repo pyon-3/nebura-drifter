@@ -467,6 +467,7 @@ let audioContext: AudioContext | null = null;
 let sfxMaster: GainNode | null = null;
 let bgmVolume = Number(localStorage.getItem("nebura-bgm-volume") ?? 68) / 100;
 let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
+let finishBgmWarmed = false;
 bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
@@ -576,7 +577,32 @@ function requestStart() {
   title.classList.add("hidden");
   startSfx();
   bgm.load();
+  warmFinishBgm();
   countdownEnd = performance.now() / 1000 + 3.8;
+}
+function warmFinishBgm() {
+  if (finishBgmWarmed) return;
+  finishBgmWarmed = true;
+  finishBgm.load();
+  finishBgm.muted = true;
+  void finishBgm.play().then(() => {
+    finishBgm.pause();
+    finishBgm.currentTime = 0;
+    finishBgm.muted = false;
+    finishBgm.volume = bgmVolume;
+  }).catch(() => {
+    finishBgm.muted = false;
+    finishBgmWarmed = false;
+  });
+}
+function playFinishBgm() {
+  const tryPlay = () => {
+    void finishBgm.play().catch(() => {});
+  };
+  void finishBgm.play().catch(() => {
+    finishBgm.load();
+    finishBgm.addEventListener("canplay", tryPlay, { once: true });
+  });
 }
 addEventListener("pointerdown", e => { if (!replaying) arm(); });
 for (const gesture of ["gesturestart", "gesturechange", "gestureend"]) {
@@ -666,8 +692,11 @@ function startFinish(now: number) {
   replayCursor = 0;
   playerSpeed = 0;
   bgm.pause();
+  finishBgm.pause();
+  finishBgm.currentTime = 0;
+  finishBgm.muted = false;
   finishBgm.volume = bgmVolume;
-  void finishBgm.play().catch(() => {});
+  playFinishBgm();
   announcementEl.textContent = "FINISH";
   announcementEl.className = "show final";
   skipReplayEl.classList.toggle("show", replaying);
