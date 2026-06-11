@@ -343,7 +343,7 @@ let replayStart = 0;
 let replayCursor = 0;
 let finishHandled = false;
 let steer = 0;
-let pointer = false;
+let steeringPointerId: number | null = null;
 let playerProgress = 0;
 let playerSpeed = 0;
 let lane = 0;
@@ -367,6 +367,8 @@ const lapEl = document.querySelector("#lap")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
 const announcementEl = document.querySelector<HTMLElement>("#announcement")!;
 const skipReplayEl = document.querySelector<HTMLButtonElement>("#skipReplay")!;
+const steeringEl = document.querySelector<HTMLElement>("#steering")!;
+const steeringKnobEl = document.querySelector<HTMLElement>("#steeringKnob")!;
 const gasEl = document.querySelector<HTMLButtonElement>("#gas")!;
 const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
 const bgm = document.querySelector<HTMLAudioElement>("#bgm")!;
@@ -450,8 +452,13 @@ function startSfx() {
   tireSource.start();
 }
 
-function setSteer(clientX: number) {
-  steer = THREE.MathUtils.clamp((clientX / innerWidth - 0.5) * 2.7, -1, 1);
+function setVirtualSteer(clientX: number) {
+  const rect = steeringEl.getBoundingClientRect();
+  const raw = THREE.MathUtils.clamp((clientX - (rect.left + rect.width * 0.5)) / (rect.width * 0.36), -1, 1);
+  const deadZone = 0.08;
+  const amount = Math.abs(raw) < deadZone ? 0 : Math.sign(raw) * Math.pow((Math.abs(raw) - deadZone) / (1 - deadZone), 1.15);
+  steer = amount;
+  steeringKnobEl.style.transform = `translateX(${amount * rect.width * 0.25}px)`;
 }
 function arm() { armed = true; title.classList.add("hidden"); }
 function playCountdownBeep(go = false) {
@@ -473,10 +480,32 @@ function requestStart() {
   startSfx();
   countdownEnd = performance.now() / 1000 + 3.8;
 }
-addEventListener("pointerdown", e => { if (replaying) return; pointer = true; setSteer(e.clientX); arm(); });
-addEventListener("pointermove", e => { if (pointer) setSteer(e.clientX); });
-addEventListener("pointerup", () => { pointer = false; steer = 0; });
-addEventListener("pointercancel", () => { pointer = false; steer = 0; });
+addEventListener("pointerdown", e => { if (!replaying) arm(); });
+steeringEl.addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  e.preventDefault();
+  if (replaying) return;
+  steeringPointerId = e.pointerId;
+  steeringEl.setPointerCapture(e.pointerId);
+  steeringEl.classList.add("active");
+  setVirtualSteer(e.clientX);
+  arm();
+});
+steeringEl.addEventListener("pointermove", e => {
+  if (steeringPointerId === e.pointerId) {
+    e.preventDefault();
+    setVirtualSteer(e.clientX);
+  }
+});
+function releaseSteering(e: PointerEvent) {
+  if (steeringPointerId !== e.pointerId) return;
+  steeringPointerId = null;
+  steer = 0;
+  steeringKnobEl.style.transform = "translateX(0)";
+  steeringEl.classList.remove("active");
+}
+steeringEl.addEventListener("pointerup", releaseSteering);
+steeringEl.addEventListener("pointercancel", releaseSteering);
 const keys = new Set<string>();
 addEventListener("keydown", e => {
   if (replaying && e.code === "Escape") { endReplay(); return; }
@@ -637,8 +666,8 @@ function animate() {
       announcementEl.className = "";
     }
   }
-  if (!pointer && keySteer) steer = keySteer;
-  if (!pointer && !keySteer) steer *= Math.pow(0.001, dt);
+  if (steeringPointerId === null && keySteer) steer = keySteer;
+  if (steeringPointerId === null && !keySteer) steer *= Math.pow(0.001, dt);
 
   let dynamics = { frontSlip: 0, rearSlip: 0, offRoad: false };
   if (running) {
