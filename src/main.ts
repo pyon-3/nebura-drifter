@@ -16,15 +16,19 @@ const camera = new THREE.PerspectiveCamera(69, innerWidth / innerHeight, 0.1, 16
 const clock = new THREE.Clock();
 const up = new THREE.Vector3(0, 1, 0);
 
-scene.add(new THREE.HemisphereLight(0xb7caff, 0x1a1e3d, 1.62));
+const hemisphere = new THREE.HemisphereLight(0xb7caff, 0x1a1e3d, 1.62);
+scene.add(hemisphere);
 const moon = new THREE.DirectionalLight(0xe1fbff, 2.18);
 moon.position.set(-12, 18, -8);
 scene.add(moon);
+const wireMaterials: THREE.LineBasicMaterial[] = [];
+const gateMaterials: THREE.LineBasicMaterial[] = [];
 
 function addWireEnvironment() {
   const city = new THREE.Group();
   const cyan = new THREE.LineBasicMaterial({ color: 0x70f2ff, transparent: true, opacity: 0.46 });
   const violet = new THREE.LineBasicMaterial({ color: 0xc997ff, transparent: true, opacity: 0.38 });
+  wireMaterials.push(cyan, violet);
   for (let i = 0; i < 72; i++) {
     const angle = (i / 72) * Math.PI * 2;
     const radius = 580 + Math.sin(i * 2.17) * 90;
@@ -51,6 +55,7 @@ function addWireEnvironment() {
     const f = trackFrame(i / 32);
     const gate = new THREE.Group();
     const material = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff6a95 : 0x75f3ff, transparent: true, opacity: 0.55 });
+    gateMaterials.push(material);
     for (const side of [-1, 1]) {
       const pillar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 5.5, 0.16)), material);
       pillar.position.copy(f.point).addScaledVector(f.right, side * 8.5).setY(2.75);
@@ -174,7 +179,26 @@ for (let i = 0; i < 260; i++) {
   starPos.push(Math.cos(a) * r, 8 + Math.random() * 42, Math.sin(a) * r);
 }
 starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPos, 3));
-scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9ac7ff, size: 1.15, transparent: true, opacity: 0.55 })));
+const starMaterial = new THREE.PointsMaterial({ color: 0x9ac7ff, size: 1.15, transparent: true, opacity: 0.55 });
+scene.add(new THREE.Points(starGeo, starMaterial));
+const finalRings = new THREE.Group();
+const finalRingMaterials: THREE.MeshBasicMaterial[] = [];
+for (let i = 0; i < 3; i++) {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xff3f7c,
+    wireframe: true,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(190 + i * 92, 0.5 + i * 0.18, 4, 80), material);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 16 + i * 18;
+  finalRingMaterials.push(material);
+  finalRings.add(ring);
+}
+scene.add(finalRings);
 
 type SmokeParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number };
 const smokeTexture = (() => {
@@ -498,6 +522,55 @@ function applyLapTheme(lap: number) {
   });
 }
 applyLapTheme(1);
+
+const finalSkyColor = new THREE.Color();
+const finalFogColor = new THREE.Color();
+const finalAccentColor = new THREE.Color();
+function updateFinalLapVisuals(now: number) {
+  if (currentLap !== 5 || !running) return;
+  const pulse = getBgmPulse();
+  const wave = Math.sin(bgm.currentTime * 1.15) * 0.5 + 0.5;
+  const hue = (bgm.currentTime * 0.025 + wave * 0.08) % 1;
+  finalSkyColor.setHSL(hue, 0.7, 0.075 + pulse * 0.075);
+  finalFogColor.setHSL((hue + 0.055) % 1, 0.82, 0.09 + pulse * 0.08);
+  finalAccentColor.setHSL((hue + 0.48 + pulse * 0.08) % 1, 0.95, 0.58 + pulse * 0.18);
+  scene.background = finalSkyColor;
+  if (scene.fog instanceof THREE.FogExp2) {
+    scene.fog.color.copy(finalFogColor);
+    scene.fog.density = 0.00145 + pulse * 0.00028;
+  }
+  renderer.toneMappingExposure = 2.42 + pulse * 0.72;
+  hemisphere.intensity = 1.75 + pulse * 1.15;
+  hemisphere.color.copy(finalAccentColor);
+  moon.intensity = 2.35 + pulse * 3.1;
+  moon.color.setHSL((hue + 0.12) % 1, 0.72, 0.72);
+  gridMaterials.forEach((material, i) => {
+    material.color.setHSL((hue + i * 0.08) % 1, 0.9, 0.52 + pulse * 0.18);
+    material.opacity = 0.48 + pulse * 0.34;
+  });
+  wireMaterials.forEach((material, i) => {
+    material.color.setHSL((hue + 0.22 + i * 0.28) % 1, 0.94, 0.58 + pulse * 0.2);
+    material.opacity = 0.48 + pulse * 0.38;
+  });
+  gateMaterials.forEach((material, i) => {
+    material.color.setHSL((hue + i * 0.07 + pulse * 0.12) % 1, 0.98, 0.58 + pulse * 0.22);
+    material.opacity = 0.58 + pulse * 0.4;
+  });
+  starMaterial.color.copy(finalAccentColor);
+  starMaterial.opacity = 0.62 + pulse * 0.38;
+  starMaterial.size = 1.15 + pulse * 1.45;
+  finalRings.rotation.y = bgm.currentTime * 0.06;
+  finalRings.children.forEach((ring, i) => {
+    const phase = Math.sin(bgm.currentTime * (0.42 + i * 0.08) + i * 1.7) * 0.5 + 0.5;
+    const scale = 1 + pulse * (0.025 + i * 0.008) + phase * 0.012;
+    ring.scale.setScalar(scale);
+    finalRingMaterials[i].color.setHSL((hue + i * 0.24 + pulse * 0.08) % 1, 1, 0.58 + pulse * 0.22);
+    finalRingMaterials[i].opacity = 0.16 + phase * 0.16 + pulse * 0.44;
+  });
+  announcementEl.style.filter = `hue-rotate(${Math.round((hue + pulse * 0.2) * 360)}deg) brightness(${1.05 + pulse * 0.65})`;
+  announcementEl.style.transform = `translate(-50%,-50%) scale(${1 + pulse * 0.08})`;
+  if (pulse > 0.72 && now - lastFirework > 0.34) lastFirework = 0;
+}
 
 function makeNoiseBuffer(context: AudioContext) {
   const buffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
@@ -870,7 +943,7 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
 }
 function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
   const beatPulse = getBgmPulse();
-  if (now - lastFirework < THREE.MathUtils.lerp(1.2, 0.62, beatPulse)) return;
+  if (now - lastFirework < THREE.MathUtils.lerp(0.98, 0.36, beatPulse)) return;
   lastFirework = now;
   const launch = frame.point.clone()
     .addScaledVector(frame.tangent, 45 + Math.random() * 28)
@@ -887,7 +960,7 @@ function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
 }
 function burstFirework(center: THREE.Vector3) {
   const beatPulse = getBgmPulse();
-  const count = 18 + Math.round(beatPulse * 16);
+  const count = 24 + Math.round(beatPulse * 32);
   for (let i = 0; i < count; i++) {
     const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
     const angle = (i / count) * Math.PI * 2 + Math.random() * 0.18;
@@ -1093,6 +1166,7 @@ function animate() {
       finishBgm.load();
     }
   }
+  updateFinalLapVisuals(now);
   scoreEl.textContent = String(Math.floor(score)).padStart(6, "0");
   const finished = playerProgress >= 5;
   if (finished) startFinish(now);
