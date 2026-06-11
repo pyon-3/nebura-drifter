@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#02030a" />
+    <title>NEBURA DRIFTER</title>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="hud">
+      <div class="brand">NEBURA <b>DRIFTER</b></div>
+      <div class="score"><span id="score">000000</span><small>DRIFT PTS</small></div>
+      <div class="position"><span id="position">8</span><small>/ 8 POSITION</small></div>
+      <div class="lap">LAP <span id="lap">1</span><small>/ 5</small></div>
+      <div class="speed">
+        <small>SPEED</small>
+        <div><span id="speed">000</span><em>KM/H</em></div>
+        <i><b id="speedBar"></b></i>
+      </div>
+      <div id="status">CHASE THE AFTERIMAGE</div>
+      <div id="announcement"></div>
+      <div id="pedals">
+        <button id="brake">BRAKE</button>
+        <button id="gas">GAS</button>
+      </div>
+    </div>
+    <div id="title">
+      <h1>NEBURA<br /><b>DRIFTER</b></h1>
+      <p>FOLLOW THE RED AFTERIMAGE</p>
+      <button>ENTER GRID</button>
+      <small>GAS TO START // W/↑ GAS // S/↓ BRAKE</small>
+    </div>
+    <audio id="bgm" loop preload="auto" src="/Nebura_Drifter.mp3"></audio>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

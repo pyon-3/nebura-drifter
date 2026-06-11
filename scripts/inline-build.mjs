@@ -1,0 +1,13 @@
+import { readFile, writeFile } from "node:fs/promises";
+const htmlPath = new URL("../dist/index.html", import.meta.url);
+let html = await readFile(htmlPath, "utf8");
+const cssMatch = html.match(/<link rel="stylesheet" crossorigin href="([^"]+)">/);
+const jsMatch = html.match(/<script type="module" crossorigin src="([^"]+)"><\/script>/);
+if (!cssMatch || !jsMatch) throw new Error("Build assets not found");
+const css = await readFile(new URL(`../dist${cssMatch[1]}`, import.meta.url), "utf8");
+const js = await readFile(new URL(`../dist${jsMatch[1]}`, import.meta.url), "utf8");
+const bgm = await readFile(new URL("../public/Nebura_Drifter.mp3", import.meta.url));
+html = html.replace(cssMatch[0], () => `<style>${css}</style>`);
+html = html.replace(jsMatch[0], () => `<script type="module">${js}</script>`);
+html = html.replace("/Nebura_Drifter.mp3", `data:audio/mpeg;base64,${bgm.toString("base64")}`);
+await writeFile(new URL("../dist/nebura-drifter.html", import.meta.url), html);
