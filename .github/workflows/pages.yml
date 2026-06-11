@@ -28,8 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run inline
-      - run: mkdir site && cp dist/nebura-drifter.html site/index.html
+      - run: mkdir site && cp -a dist/. site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

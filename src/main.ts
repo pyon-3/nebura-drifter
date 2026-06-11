@@ -575,6 +575,7 @@ function requestStart() {
   armed = true;
   title.classList.add("hidden");
   startSfx();
+  bgm.load();
   countdownEnd = performance.now() / 1000 + 3.8;
 }
 addEventListener("pointerdown", e => { if (!replaying) arm(); });
@@ -1058,7 +1059,10 @@ function animate() {
   if (lap !== currentLap) {
     currentLap = lap;
     applyLapTheme(lap);
-    if (lap === 5) finalLapUntil = now + 3;
+    if (lap === 5) {
+      finalLapUntil = now + 3;
+      finishBgm.load();
+    }
   }
   scoreEl.textContent = String(Math.floor(score)).padStart(6, "0");
   const finished = playerProgress >= 5;
