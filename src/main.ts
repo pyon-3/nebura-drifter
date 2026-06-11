@@ -650,7 +650,7 @@ function animate() {
   const slipAngle = Math.atan2(lateralVelocity, Math.max(1, playerSpeed));
   const drifting = speedRatio > 0.3 && Math.abs(dynamics.rearSlip) > 0.09;
   if (running && drifting) score += Math.abs(lateralVelocity) * dt * 155;
-  if (running && now - lastReplayCapture > 0.075) {
+  if (running && now - lastReplayCapture > 0.04) {
     lastReplayCapture = now;
     replayFrames.push({ time: now, progress: playerProgress, lane, lateralVelocity, yawError, yawRate });
   }
@@ -660,8 +660,18 @@ function animate() {
   if (replaying) {
     const replayTime = replayFrames[0].time + (now - replayStart) * 0.78;
     while (replayCursor < replayFrames.length - 2 && replayFrames[replayCursor + 1].time < replayTime) replayCursor++;
-    const frame = replayFrames[replayCursor];
-    playerFrame = placeCar(playerCar, frame.progress, frame.lane, frame.yawError, -frame.lateralVelocity * 0.012);
+    const frameA = replayFrames[replayCursor];
+    const frameB = replayFrames[Math.min(replayCursor + 1, replayFrames.length - 1)];
+    const blend = THREE.MathUtils.smoothstep(
+      THREE.MathUtils.clamp((replayTime - frameA.time) / Math.max(0.001, frameB.time - frameA.time), 0, 1),
+      0,
+      1,
+    );
+    const replayProgress = THREE.MathUtils.lerp(frameA.progress, frameB.progress, blend);
+    const replayLane = THREE.MathUtils.lerp(frameA.lane, frameB.lane, blend);
+    const replayLateralVelocity = THREE.MathUtils.lerp(frameA.lateralVelocity, frameB.lateralVelocity, blend);
+    const replayYaw = frameA.yawError + wrapAngle(frameB.yawError - frameA.yawError) * blend;
+    playerFrame = placeCar(playerCar, replayProgress, replayLane, replayYaw, -replayLateralVelocity * 0.012);
     if (replayTime >= replayFrames[replayFrames.length - 1].time) endReplay();
   }
   let leadFrame = trackFrame(0);
@@ -684,7 +694,7 @@ function animate() {
       born: now,
     });
   }
-  if (now - lastPlayerEmit > 0.028) {
+  if (now - lastPlayerEmit > (replaying ? 0.018 : 0.028)) {
     lastPlayerEmit = now;
     const rear = playerFrame.point.clone().addScaledVector(playerFrame.tangent, -1.8).setY(0.56);
     playerSamples.push({
@@ -709,8 +719,9 @@ function animate() {
   if (replaying) {
     const orbit = Math.sin((now - replayStart) * 0.32);
     cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -8 + orbit * 2).addScaledVector(playerFrame.right, 7 + orbit * 4).setY(4.2 + Math.abs(orbit) * 1.8);
-    camera.position.lerp(cameraPos, 1 - Math.pow(0.006, dt));
-    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 5).setY(0.65);
+    camera.position.lerp(cameraPos, 1 - Math.pow(0.018, dt));
+    const replayLook = playerFrame.point.clone().addScaledVector(playerFrame.tangent, 5).setY(0.65);
+    cameraTarget.lerp(replayLook, 1 - Math.pow(0.008, dt));
   } else {
     const cameraSlip = THREE.MathUtils.clamp(lateralVelocity * 0.16, -2.2, 2.2);
     cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -cameraSlip).setY(2.3 + cameraShake);
