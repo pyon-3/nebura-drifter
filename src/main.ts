@@ -542,8 +542,8 @@ const vehicle = {
   rearGrip: 1.24,
   engineForce: 9200,
   brakeForce: 15500,
-  rollingResistance: 95,
-  aerodynamicDrag: 0.46,
+  rollingResistance: 45,
+  aerodynamicDrag: 0.22,
   maxSteer: 0.44,
 };
 
@@ -573,7 +573,7 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const frontForce = THREE.MathUtils.clamp(-vehicle.frontCornerStiffness * frontSlip, -frontLimit, frontLimit);
   const rearForce = THREE.MathUtils.clamp(-vehicle.rearCornerStiffness * rearSlip, -rearLimit, rearLimit);
 
-  const engine = accelerating ? vehicle.engineForce * (1 - speedRatio * speedRatio * 0.82) : 0;
+  const engine = accelerating ? vehicle.engineForce * (1 - speedRatio * speedRatio * 0.38) : 0;
   const brake = braking ? vehicle.brakeForce : 0;
   const drag = vehicle.rollingResistance * playerSpeed + vehicle.aerodynamicDrag * playerSpeed * playerSpeed;
   const previousSpeed = playerSpeed;
