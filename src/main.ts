@@ -58,38 +58,73 @@ function addWireEnvironment() {
     gateMaterials.push(material);
     for (const side of [-1, 1]) {
       const pillar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 5.5, 0.16)), material);
-      pillar.position.copy(f.point).addScaledVector(f.right, side * 8.5).setY(2.75);
+      pillar.position.copy(f.point).addScaledVector(f.right, side * 8.5).addScaledVector(f.normal, 2.75);
+      pillar.quaternion.setFromUnitVectors(up, f.normal);
       gate.add(pillar);
     }
     const top = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(17, 0.14, 0.14)), material);
-    top.position.copy(f.point).setY(5.45);
-    top.rotation.y = Math.atan2(f.right.x, f.right.z);
+    top.position.copy(f.point).addScaledVector(f.normal, 5.45);
+    top.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     gate.add(top);
     scene.add(gate);
   }
 }
 
-const trackPoints = [
-    new THREE.Vector3(-66, 0, -28), new THREE.Vector3(66, 0, -28),
-    new THREE.Vector3(79, 0, -24), new THREE.Vector3(86, 0, -13),
-    new THREE.Vector3(88, 0, 0), new THREE.Vector3(86, 0, 13),
-    new THREE.Vector3(79, 0, 24), new THREE.Vector3(66, 0, 28),
-    new THREE.Vector3(-66, 0, 28), new THREE.Vector3(-79, 0, 24),
-    new THREE.Vector3(-86, 0, 13), new THREE.Vector3(-88, 0, 0),
-    new THREE.Vector3(-86, 0, -13), new THREE.Vector3(-79, 0, -24),
-];
-const baseOval = new THREE.CatmullRomCurve3(trackPoints, true, "catmullrom", 0.18);
-const COURSE_SCALE = 2000 / (baseOval.getLength() * 1.3);
+type LapTheme = { sky: number; fog: number; grid: number; opacity: number };
+type StageConfig = {
+  id: string;
+  name: string;
+  controlPoints: [number, number, number][];
+  tension: number;
+  targetLengthMeters: number;
+  worldToMeters: number;
+  trackWidth: number;
+  segments: number;
+  laps: number;
+  aiTopSpeedBaseKmh: number;
+  themes: LapTheme[];
+};
+
+const STAGES: StageConfig[] = [{
+  id: "neon-grid",
+  name: "NEON GRID",
+  controlPoints: [
+    [-66, 0.0, -28], [66, 0.35, -28], [79, 0.75, -24], [86, 1.05, -13],
+    [88, 1.2, 0], [86, 1.0, 13], [79, 0.55, 24], [66, 0.1, 28],
+    [-66, -0.65, 28], [-79, -0.95, 24], [-86, -1.15, 13], [-88, -0.9, 0],
+    [-86, -0.55, -13], [-79, -0.2, -24],
+  ],
+  tension: 0.18,
+  targetLengthMeters: 2000,
+  worldToMeters: 1.3,
+  trackWidth: 11,
+  segments: 280,
+  laps: 5,
+  aiTopSpeedBaseKmh: 218,
+  themes: [
+    { sky: 0x09112c, fog: 0x09112c, grid: 0x246f91, opacity: 0.16 },
+    { sky: 0x0c1836, fog: 0x0c1d39, grid: 0x3595b8, opacity: 0.36 },
+    { sky: 0x1d1235, fog: 0x22143e, grid: 0x7b56c5, opacity: 0.27 },
+    { sky: 0x0c281d, fog: 0x0d3027, grid: 0x38a589, opacity: 0.42 },
+    { sky: 0x32101f, fog: 0x3a1020, grid: 0xc43d68, opacity: 0.5 },
+  ],
+}];
+const stage = STAGES[0];
+const trackPoints = stage.controlPoints.map(([x, y, z]) => new THREE.Vector3(x, y, z));
+const baseOval = new THREE.CatmullRomCurve3(trackPoints, true, "catmullrom", stage.tension);
+const COURSE_SCALE = stage.targetLengthMeters / (baseOval.getLength() * stage.worldToMeters);
 const oval = new THREE.CatmullRomCurve3(
   trackPoints.map(point => point.clone().multiplyScalar(COURSE_SCALE)),
   true,
   "catmullrom",
-  0.18,
+  stage.tension,
 );
-const TRACK_WIDTH = 11;
-const SEGMENTS = 280;
-const TRACK_LENGTH_METERS = oval.getLength() * 1.3;
-const WORLD_TO_METERS = 1.3;
+const TRACK_WIDTH = stage.trackWidth;
+const SEGMENTS = stage.segments;
+const TRACK_LENGTH_METERS = oval.getLength() * stage.worldToMeters;
+const WORLD_TO_METERS = stage.worldToMeters;
+const TOTAL_LAPS = stage.laps;
+const TRACK_FLOOR_Y = Math.min(...oval.getSpacedPoints(160).map(point => point.y)) - 0.5;
 const MAX_SPEED_MPS = 288 / 3.6;
 
 function trackFrame(u: number, lane = 0) {
@@ -97,7 +132,8 @@ function trackFrame(u: number, lane = 0) {
   const point = oval.getPointAt(wrapped);
   const tangent = oval.getTangentAt(wrapped).normalize();
   const right = new THREE.Vector3().crossVectors(up, tangent).normalize();
-  return { point: point.addScaledVector(right, lane), tangent, right };
+  const normal = new THREE.Vector3().crossVectors(tangent, right).normalize();
+  return { point: point.addScaledVector(right, lane), tangent, right, normal };
 }
 function wrapAngle(angle: number) {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -120,10 +156,10 @@ function makeRoad() {
     const f = trackFrame(i / SEGMENTS);
     for (const side of [-1, 1]) {
       const p = f.point.clone().addScaledVector(f.right, side * TRACK_WIDTH * 0.5);
-      vertices.push(p.x, 0, p.z);
+      vertices.push(p.x, p.y, p.z);
       const stripe = i % 12 < 6 ? 0.105 : 0.078;
       colors.push(stripe, stripe * 1.08, stripe * 1.5);
-      (side < 0 ? edgeL : edgeR).push(p.clone().setY(0.035));
+      (side < 0 ? edgeL : edgeR).push(p.clone().addScaledVector(f.normal, 0.035));
     }
   }
   const indices: number[] = [];
@@ -146,7 +182,8 @@ function makeRoad() {
         new THREE.CylinderGeometry(0.025, 0.025, 0.7, 4),
         new THREE.MeshBasicMaterial({ color: i % 2 ? 0x18a9bd : 0xd21d6c }),
       );
-      post.position.copy(f.point).addScaledVector(f.right, side * 6.25).setY(0.35);
+      post.position.copy(f.point).addScaledVector(f.right, side * 6.25).addScaledVector(f.normal, 0.35);
+      post.quaternion.setFromUnitVectors(up, f.normal);
       scene.add(post);
     }
   }
@@ -159,10 +196,10 @@ const floor = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ color: 0x070b1c }),
 );
 floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.035;
+floor.position.y = TRACK_FLOOR_Y;
 scene.add(floor);
 const grid = new THREE.GridHelper(2200, 110, 0x31dff4, 0x174b69);
-grid.position.y = 0.005;
+grid.position.y = TRACK_FLOOR_Y + 0.04;
 const gridMaterials = (Array.isArray(grid.material) ? grid.material : [grid.material]) as THREE.LineBasicMaterial[];
 gridMaterials.forEach(material => {
   material.transparent = true;
@@ -361,13 +398,13 @@ const rivals: Rival[] = rivalColors.map((color, i) => {
     progress: 0.045 - i * 0.014,
     lane: (i % 2 ? 1 : -1) * (0.65 + (i % 3) * 0.65),
     speedMps: 0,
-    topSpeedMps: (218 + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6,
+    topSpeedMps: (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6,
     acceleration: 5.1 + (i % 3) * 0.42,
     phase: i * 1.7,
   };
 });
 
-type TrailSample = { left: THREE.Vector3; right: THREE.Vector3; tangent: THREE.Vector3; born: number };
+type TrailSample = { left: THREE.Vector3; right: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3; born: number };
 const samples: TrailSample[] = [];
 const playerSamples: TrailSample[] = [];
 const TRAIL_LIFE = 1.38;
@@ -420,8 +457,8 @@ function updateRibbon(
     const fadePower = bleed ? 3.2 : 2.65;
     const alpha = Math.pow(1 - age, fadePower) * (bleed ? 0.18 : 0.72) * strength;
     const center = s[side].clone();
-    if (bleed) center.y = 0.025;
-    const across = new THREE.Vector3().crossVectors(up, s.tangent).normalize().multiplyScalar(width * 0.5);
+    if (bleed) center.addScaledVector(s.normal, -0.535);
+    const across = new THREE.Vector3().crossVectors(s.normal, s.tangent).normalize().multiplyScalar(width * 0.5);
     positions.push(center.x - across.x, center.y, center.z - across.z, center.x + across.x, center.y, center.z + across.z);
     alphas.push(alpha, alpha);
     if (i > 0) {
@@ -473,6 +510,7 @@ const speedBarEl = document.querySelector<HTMLElement>("#speedBar")!;
 const scoreEl = document.querySelector("#score")!;
 const positionEl = document.querySelector("#position")!;
 const lapEl = document.querySelector("#lap")!;
+const totalLapsEl = document.querySelector("#totalLaps")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
 const announcementEl = document.querySelector<HTMLElement>("#announcement")!;
 const skipReplayEl = document.querySelector<HTMLButtonElement>("#skipReplay")!;
@@ -507,6 +545,7 @@ bgmValueEl.value = bgmVolumeEl.value;
 sfxValueEl.value = sfxVolumeEl.value;
 bgm.volume = bgmVolume;
 finishBgm.volume = bgmVolume;
+totalLapsEl.textContent = String(TOTAL_LAPS);
 let engineOsc: OscillatorNode | null = null;
 let engineGain: GainNode | null = null;
 let windSource: AudioBufferSourceNode | null = null;
@@ -514,13 +553,7 @@ let windGain: GainNode | null = null;
 let tireSource: AudioBufferSourceNode | null = null;
 let tireGain: GainNode | null = null;
 
-const lapThemes = [
-  { sky: 0x09112c, fog: 0x09112c, grid: 0x246f91, opacity: 0.16 },
-  { sky: 0x0c1836, fog: 0x0c1d39, grid: 0x3595b8, opacity: 0.36 },
-  { sky: 0x1d1235, fog: 0x22143e, grid: 0x7b56c5, opacity: 0.27 },
-  { sky: 0x0c281d, fog: 0x0d3027, grid: 0x38a589, opacity: 0.42 },
-  { sky: 0x32101f, fog: 0x3a1020, grid: 0xc43d68, opacity: 0.5 },
-];
+const lapThemes = stage.themes;
 function applyLapTheme(lap: number) {
   const theme = lapThemes[Math.min(lap - 1, lapThemes.length - 1)];
   scene.background = new THREE.Color(theme.sky);
@@ -559,7 +592,7 @@ const finalSkyColor = new THREE.Color();
 const finalFogColor = new THREE.Color();
 const finalAccentColor = new THREE.Color();
 function updateFinalLapVisuals(now: number) {
-  if (currentLap !== 5 || !running) return;
+  if (currentLap !== TOTAL_LAPS || !running) return;
   const pulse = getBgmPulse();
   const wave = Math.sin(bgm.currentTime * 1.15) * 0.5 + 0.5;
   const hue = (bgm.currentTime * 0.025 + wave * 0.08) % 1;
@@ -677,7 +710,7 @@ function playCountdownBeep(go = false) {
   oscillator.stop(audioContext.currentTime + (go ? 0.34 : 0.18));
 }
 function requestStart() {
-  if (running || replaying || countdownEnd > 0 || playerProgress >= 5) return;
+  if (running || replaying || countdownEnd > 0 || playerProgress >= TOTAL_LAPS) return;
   armed = true;
   title.classList.add("hidden");
   startSfx();
@@ -924,11 +957,11 @@ const cameraPos = new THREE.Vector3();
 function placeCar(car: THREE.Group, u: number, offset: number, slip = 0, roll = 0) {
   const f = trackFrame(u, offset);
   car.position.copy(f.point);
-  car.rotation.y = Math.atan2(f.tangent.x, f.tangent.z) + slip;
-  car.rotation.z = THREE.MathUtils.clamp(roll, -0.07, 0.07);
-  const tangent = f.tangent.clone().applyAxisAngle(up, slip).normalize();
-  const right = new THREE.Vector3().crossVectors(up, tangent).normalize();
-  return { point: f.point, tangent, right };
+  const tangent = f.tangent.clone().applyAxisAngle(f.normal, slip).normalize();
+  const right = f.right.clone().applyAxisAngle(f.normal, slip).normalize();
+  car.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, f.normal, tangent));
+  car.rotateZ(THREE.MathUtils.clamp(roll, -0.07, 0.07));
+  return { point: f.point, tangent, right, normal: f.normal };
 }
 
 const vehicle = {
@@ -1074,7 +1107,7 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
     const particle = smokeParticles[smokeCursor++ % smokeParticles.length];
     particle.life = particle.maxLife = 0.7 + Math.random() * 0.45;
     particle.sprite.visible = true;
-    particle.sprite.position.copy(frame.point).addScaledVector(frame.tangent, -1.55).addScaledVector(frame.right, side * 0.62).setY(0.18);
+    particle.sprite.position.copy(frame.point).addScaledVector(frame.tangent, -1.55).addScaledVector(frame.right, side * 0.62).addScaledVector(frame.normal, 0.18);
     particle.sprite.scale.setScalar(0.8);
     particle.velocity.copy(frame.tangent).multiplyScalar(-0.8 - Math.random() * 0.8).addScaledVector(frame.right, side * (Math.random() - 0.5)).setY(0.35 + Math.random() * 0.35);
   }
@@ -1086,7 +1119,7 @@ function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
   const launch = frame.point.clone()
     .addScaledVector(frame.tangent, 45 + Math.random() * 28)
     .addScaledVector(frame.right, (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 22))
-    .setY(0.4);
+    .addScaledVector(frame.normal, 0.4);
   const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
   particle.life = particle.maxLife = 0.72 + Math.random() * 0.25;
   particle.rocket = true;
@@ -1207,7 +1240,7 @@ function animate() {
   }
 
   let playerFrame = placeCar(playerCar, playerProgress, lane, yawError, -lateralVelocity * 0.012);
-  playerCar.rotation.x = THREE.MathUtils.clamp(-longitudinalAccel * 0.004, -0.032, 0.032);
+  playerCar.rotateX(THREE.MathUtils.clamp(-longitudinalAccel * 0.004, -0.032, 0.032));
   if (replaying) {
     const replayTime = replayFrames[0].time + (now - replayStart) * 0.78;
     while (replayCursor < replayFrames.length - 2 && replayFrames[replayCursor + 1].time < replayTime) replayCursor++;
@@ -1226,7 +1259,7 @@ function animate() {
     if (replayTime >= replayFrames[replayFrames.length - 1].time) endReplay();
   }
   if (running && drifting) emitDriftSmoke(playerFrame, now);
-  if (running && currentLap === 5) spawnFirework(playerFrame, now);
+  if (running && currentLap === TOTAL_LAPS) spawnFirework(playerFrame, now);
   updateEffects(dt);
   let leadFrame = trackFrame(0);
   rivals.forEach((rival, i) => {
@@ -1247,21 +1280,23 @@ function animate() {
 
   if (now - lastEmit > 0.035) {
     lastEmit = now;
-    const rear = leadFrame.point.clone().addScaledVector(leadFrame.tangent, -1.78).setY(0.56);
+    const rear = leadFrame.point.clone().addScaledVector(leadFrame.tangent, -1.78).addScaledVector(leadFrame.normal, 0.56);
     samples.push({
       left: rear.clone().addScaledVector(leadFrame.right, -0.57),
       right: rear.clone().addScaledVector(leadFrame.right, 0.57),
       tangent: leadFrame.tangent.clone(),
+      normal: leadFrame.normal.clone(),
       born: now,
     });
   }
   if (now - lastPlayerEmit > (replaying ? 0.018 : 0.028)) {
     lastPlayerEmit = now;
-    const rear = playerFrame.point.clone().addScaledVector(playerFrame.tangent, -1.8).setY(0.56);
+    const rear = playerFrame.point.clone().addScaledVector(playerFrame.tangent, -1.8).addScaledVector(playerFrame.normal, 0.56);
     playerSamples.push({
       left: rear.clone().addScaledVector(playerFrame.right, -0.57),
       right: rear.clone().addScaledVector(playerFrame.right, 0.57),
       tangent: playerFrame.tangent.clone(),
+      normal: playerFrame.normal.clone(),
       born: now,
     });
   }
@@ -1279,15 +1314,15 @@ function animate() {
   const cameraShake = running ? Math.sin(now * 43) * (0.008 + speedRatio * 0.035) : 0;
   if (replaying) {
     const orbit = Math.sin((now - replayStart) * 0.32);
-    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -8 + orbit * 2).addScaledVector(playerFrame.right, 7 + orbit * 4).setY(4.2 + Math.abs(orbit) * 1.8);
+    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -8 + orbit * 2).addScaledVector(playerFrame.right, 7 + orbit * 4).addScaledVector(playerFrame.normal, 4.2 + Math.abs(orbit) * 1.8);
     camera.position.lerp(cameraPos, 1 - Math.pow(0.018, dt));
-    const replayLook = playerFrame.point.clone().addScaledVector(playerFrame.tangent, 5).setY(0.65);
+    const replayLook = playerFrame.point.clone().addScaledVector(playerFrame.tangent, 5).addScaledVector(playerFrame.normal, 0.65);
     cameraTarget.lerp(replayLook, 1 - Math.pow(0.008, dt));
   } else {
     const cameraSlip = THREE.MathUtils.clamp(lateralVelocity * 0.16, -2.2, 2.2);
-    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -cameraSlip).setY(2.3 + cameraShake);
+    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -cameraSlip).addScaledVector(playerFrame.normal, 2.3 + cameraShake);
     camera.position.lerp(cameraPos, 1 - Math.pow(0.0012, dt));
-    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14 + speedRatio * 5).addScaledVector(playerFrame.right, lateralVelocity * 0.11).setY(0.48);
+    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14 + speedRatio * 5).addScaledVector(playerFrame.right, lateralVelocity * 0.11).addScaledVector(playerFrame.normal, 0.48);
   }
   camera.lookAt(cameraTarget);
 
@@ -1298,19 +1333,19 @@ function animate() {
   speedEl.textContent = String(displaySpeed).padStart(3, "0");
   speedBarEl.style.width = `${speedRatio * 100}%`;
   positionEl.textContent = String(1 + rivals.filter(rival => rival.progress > playerProgress).length);
-  const lap = Math.min(5, Math.floor(playerProgress) + 1);
+  const lap = Math.min(TOTAL_LAPS, Math.floor(playerProgress) + 1);
   lapEl.textContent = String(lap);
   if (lap !== currentLap) {
     currentLap = lap;
     applyLapTheme(lap);
-    if (lap === 5) {
+    if (lap === TOTAL_LAPS) {
       finalLapUntil = now + 3;
       finishBgm.load();
     }
   }
   updateFinalLapVisuals(now);
   scoreEl.textContent = String(Math.floor(score)).padStart(6, "0");
-  const finished = playerProgress >= 5;
+  const finished = playerProgress >= TOTAL_LAPS;
   if (finished) startFinish(now);
   if (audioContext && engineOsc && engineGain && windGain && tireGain) {
     const t = audioContext.currentTime;
