@@ -15,6 +15,10 @@ const debugFlags = {
   noParticles: debugFlag("noparticles"),
   noSprites: debugFlag("nosprites"),
   mobileSafe: debugFlag("mobileSafe"),
+  noAA: debugFlag("noaa"),
+  normalBlend: debugFlag("normalblend"),
+  mediumPrecision: debugFlag("mediump"),
+  dpr1: debugFlag("dpr1"),
 };
 const useMobileSafe = debugParams.has("mobileSafe") ? debugFlags.mobileSafe : isMobile;
 const disableGlow = debugFlags.noGlow || useMobileSafe;
@@ -23,16 +27,17 @@ const disableBleed = debugFlags.noBleed || useMobileSafe;
 const disableBloom = debugFlags.noBloom || useMobileSafe;
 const disableParticles = debugFlags.noParticles || useMobileSafe;
 const disableSprites = debugFlags.noSprites || useMobileSafe;
-const safeBlending = useMobileSafe ? THREE.NormalBlending : THREE.AdditiveBlending;
+const safeBlending = useMobileSafe || debugFlags.normalBlend ? THREE.NormalBlending : THREE.AdditiveBlending;
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: !useMobileSafe,
+  antialias: !useMobileSafe && !debugFlags.noAA,
   alpha: false,
   premultipliedAlpha: false,
   powerPreference: "high-performance",
-  precision: isMobileSafari || debugFlags.mobileSafe ? "mediump" : "highp",
+  precision: isMobileSafari || debugFlags.mobileSafe || debugFlags.mediumPrecision ? "mediump" : "highp",
 });
-renderer.setPixelRatio(Math.min(devicePixelRatio, useMobileSafe ? 1.25 : 1.7));
+const debugPixelRatioLimit = debugFlags.dpr1 ? 1 : useMobileSafe ? 1.25 : 1.7;
+renderer.setPixelRatio(Math.min(devicePixelRatio, debugPixelRatioLimit));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = disableBloom ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
@@ -58,6 +63,7 @@ function addVisualDebugPanel() {
   const flags: [string, keyof typeof debugFlags][] = [
     ["noglow", "noGlow"], ["notrail", "noTrail"], ["nobleed", "noBleed"], ["nobloom", "noBloom"],
     ["noparticles", "noParticles"], ["nosprites", "noSprites"], ["mobileSafe", "mobileSafe"],
+    ["noaa", "noAA"], ["normalblend", "normalBlend"], ["mediump", "mediumPrecision"], ["dpr1", "dpr1"],
   ];
   const links = flags.map(([queryName, key]) => {
     const params = new URLSearchParams(location.search);
@@ -2213,7 +2219,7 @@ function updateEffects(dt: number) {
 function setReducedEffects(enabled: boolean) {
   if (reducedEffects === enabled) return;
   reducedEffects = enabled;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : useMobileSafe ? 1.25 : 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : debugPixelRatioLimit));
   renderer.setSize(innerWidth, innerHeight);
   fireworkPoints.visible = !enabled && !disableParticles;
   finalRings.visible = !enabled && !disableGlow;
@@ -2499,6 +2505,6 @@ animate();
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : useMobileSafe ? 1.25 : 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : debugPixelRatioLimit));
   renderer.setSize(innerWidth, innerHeight);
 });
