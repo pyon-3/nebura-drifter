@@ -653,24 +653,60 @@ function makeCar(bodyColor: number, rival = false) {
   const rearPanel = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.29, 0.07), darkMat);
   rearPanel.position.set(0, 0.55, -1.765);
   car.add(rearPanel);
-  const tailGlowMat = new THREE.MeshBasicMaterial({
-    color: rival ? 0xff3554 : 0xff193f,
+  const tailCoreMaterials: THREE.SpriteMaterial[] = [];
+  const tailHaloMaterials: THREE.SpriteMaterial[] = [];
+  const tailSprites: THREE.Sprite[] = [];
+  for (const x of [-0.61, -0.39, -0.17, 0.17, 0.39, 0.61]) {
+    const housing = new THREE.Mesh(
+      new THREE.BoxGeometry(0.17, 0.115, 0.045),
+      new THREE.MeshBasicMaterial({ color: 0x5b0716 }),
+    );
+    housing.position.set(x, 0.57, -1.815);
+    car.add(housing);
+    const haloMaterial = new THREE.SpriteMaterial({
+      map: smokeTexture,
+      color: 0xff2349,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      opacity: rival ? 0.18 : 0.15,
+      depthWrite: false,
+    });
+    const halo = new THREE.Sprite(haloMaterial);
+    halo.position.set(x, 0.57, -1.855);
+    halo.scale.setScalar(0.72);
+    car.add(halo);
+    const coreMaterial = new THREE.SpriteMaterial({
+      map: smokeTexture,
+      color: 0xffe0e4,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      opacity: rival ? 0.72 : 0.62,
+      depthWrite: false,
+    });
+    const core = new THREE.Sprite(coreMaterial);
+    core.position.set(x, 0.57, -1.87);
+    core.scale.setScalar(0.22);
+    car.add(core);
+    tailCoreMaterials.push(coreMaterial);
+    tailHaloMaterials.push(haloMaterial);
+    tailSprites.push(halo, core);
+  }
+  const spillMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff183d,
     blending: THREE.AdditiveBlending,
     transparent: true,
-    opacity: rival ? 0.9 : 0.72,
+    opacity: 0.06,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
-  for (const x of [-0.61, -0.39, -0.17, 0.17, 0.39, 0.61]) {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.105, 0.045), tailGlowMat);
-    lamp.position.set(x, 0.57, -1.815);
-    car.add(lamp);
-  }
-  const tailBloom = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.75, 0.42),
-    new THREE.MeshBasicMaterial({ color: 0xff1745, blending: THREE.AdditiveBlending, transparent: true, opacity: rival ? 0.2 : 0.14, depthWrite: false, side: THREE.DoubleSide }),
+  const tailSpill = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2, 3.1),
+    spillMaterial,
   );
-  tailBloom.position.set(0, 0.56, -1.84);
-  car.add(tailBloom);
+  tailSpill.position.set(0, 0.04, -2.5);
+  tailSpill.rotation.x = -Math.PI / 2;
+  car.add(tailSpill);
+  car.userData.tailLights = { coreMaterials: tailCoreMaterials, haloMaterials: tailHaloMaterials, sprites: tailSprites, spillMaterial, intensity: 0.45, rival };
 
   for (const x of [-0.57, 0.57]) {
     const headlampHousing = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.055, 0.25), trimMat);
@@ -728,7 +764,7 @@ const ghostCar = new THREE.LineSegments(
 );
 ghostCar.visible = false;
 scene.add(ghostCar);
-type Rival = { car: THREE.Group; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number };
+type Rival = { car: THREE.Group; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
 const rivalColors = [0x171424, 0x42203e, 0x112c4a, 0x3f1623, 0x153d39, 0x422b12, 0x292044];
 const rivals: Rival[] = rivalColors.map((color, i) => {
   const car = makeCar(color, true);
@@ -741,14 +777,17 @@ const rivals: Rival[] = rivalColors.map((color, i) => {
     topSpeedMps: (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6,
     acceleration: 5.1 + (i % 3) * 0.42,
     phase: i * 1.7,
+    tailIntensity: 0.45,
   };
 });
 
-type TrailSample = { left: THREE.Vector3; right: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3; born: number };
+type TrailSample = { left: THREE.Vector3; right: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3; born: number; strength?: number };
 const samples: TrailSample[] = [];
 const playerSamples: TrailSample[] = [];
+const rivalTailSamples: TrailSample[][] = rivals.map(() => []);
 const TRAIL_LIFE = 1.38;
 const PLAYER_TRAIL_LIFE = 0.46;
+const RIVAL_TAIL_LIFE = 0.28;
 const trailMaterial = new THREE.ShaderMaterial({
   uniforms: { tint: { value: new THREE.Color(0xff193c) } },
   vertexShader: `attribute float aAlpha; varying float vAlpha; void main(){vAlpha=aAlpha;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
@@ -776,6 +815,10 @@ const playerMainLeft = makeTrailMesh(playerTrailMaterial);
 const playerMainRight = makeTrailMesh(playerTrailMaterial);
 const playerBleedLeft = makeTrailMesh(playerBleedMaterial);
 const playerBleedRight = makeTrailMesh(playerBleedMaterial);
+const rivalTailMeshes = rivals.map(() => ({
+  left: makeTrailMesh(trailMaterial.clone()),
+  right: makeTrailMesh(trailMaterial.clone()),
+}));
 
 function updateRibbon(
   mesh: THREE.Mesh,
@@ -795,7 +838,7 @@ function updateRibbon(
     const s = usable[i];
     const age = Math.min(1, (now - s.born) / life);
     const fadePower = bleed ? 3.2 : 2.65;
-    const alpha = Math.pow(1 - age, fadePower) * (bleed ? 0.18 : 0.72) * strength;
+    const alpha = Math.pow(1 - age, fadePower) * (bleed ? 0.18 : 0.72) * strength * (s.strength ?? 1);
     const center = s[side].clone();
     if (bleed) center.addScaledVector(s.normal, -0.535);
     const across = new THREE.Vector3().crossVectors(s.normal, s.tangent).normalize().multiplyScalar(width * 0.5);
@@ -812,6 +855,28 @@ function updateRibbon(
   geometry.setIndex(indices);
   mesh.geometry.dispose();
   mesh.geometry = geometry;
+}
+
+function updateTailLights(car: THREE.Group, targetIntensity: number, dt: number, distanceScale = 1) {
+  const lights = car.userData.tailLights as {
+    coreMaterials: THREE.SpriteMaterial[];
+    haloMaterials: THREE.SpriteMaterial[];
+    sprites: THREE.Sprite[];
+    spillMaterial: THREE.MeshBasicMaterial;
+    intensity: number;
+    rival: boolean;
+  } | undefined;
+  if (!lights) return;
+  lights.intensity = THREE.MathUtils.lerp(lights.intensity, targetIntensity, 1 - Math.pow(0.001, dt));
+  const intensity = lights.intensity;
+  lights.coreMaterials.forEach(material => { material.opacity = (lights.rival ? 0.66 : 0.58) * intensity; });
+  lights.haloMaterials.forEach(material => { material.opacity = (lights.rival ? 0.24 : 0.2) * intensity; });
+  lights.sprites.forEach((sprite, index) => {
+    const base = index % 2 === 0 ? 0.72 : 0.22;
+    const brakeGrowth = index % 2 === 0 ? 0.34 : 0.16;
+    sprite.scale.setScalar((base + brakeGrowth * intensity) * distanceScale);
+  });
+  lights.spillMaterial.opacity = 0.045 + intensity * 0.12;
 }
 
 let armed = false;
@@ -839,6 +904,7 @@ let yawRate = 0;
 let steerAngle = 0;
 let longitudinalAccel = 0;
 let score = 0;
+let playerTailIntensity = 0.45;
 let lastEmit = 0;
 let lastPlayerEmit = 0;
 let lastReplayCapture = 0;
@@ -1442,6 +1508,7 @@ function resetRace() {
   longitudinalAccel = 0;
   steer = 0;
   score = 0;
+  playerTailIntensity = 0.45;
   touchGas = false;
   touchBrake = false;
   driftState = "grip";
@@ -1459,9 +1526,11 @@ function resetRace() {
   offroadVignetteEl.style.opacity = "0";
   samples.length = 0;
   playerSamples.length = 0;
+  rivalTailSamples.forEach(source => { source.length = 0; });
   rivals.forEach((rival, i) => {
     rival.progress = 0.045 - i * 0.014;
     rival.speedMps = 0;
+    rival.tailIntensity = 0.45;
   });
   for (const particle of [...smokeParticles, ...fireworkParticles]) {
     particle.life = 0;
@@ -1896,14 +1965,19 @@ function animate() {
     playerFrame = placeCar(playerCar, replayProgress, replayLane, replayYaw, -replayLateralVelocity * 0.012);
     if (replayTime >= replayFrames[replayFrames.length - 1].time) endReplay();
   }
+  const playerTailTarget = braking ? 1 : accelerating ? 0.42 : 0.68;
+  playerTailIntensity = THREE.MathUtils.lerp(playerTailIntensity, playerTailTarget, 1 - Math.pow(0.001, dt));
+  updateTailLights(playerCar, playerTailIntensity, dt);
   if (running && drifting) emitDriftSmoke(playerFrame, now);
   if (running && currentLap === TOTAL_LAPS) spawnFirework(playerFrame, now);
   updateEffects(dt);
   let leadFrame = trackFrame(0);
+  const rivalFrames: ReturnType<typeof placeCar>[] = [];
   rivals.forEach((rival, i) => {
     const gap = rival.progress - playerProgress;
     const rubberBand = THREE.MathUtils.clamp(-gap * 3.2, -0.06, 0.045);
     const targetSpeed = rival.topSpeedMps * (1 + rubberBand + Math.sin(now * 0.32 + rival.phase) * 0.008);
+    const previousSpeed = rival.speedMps;
     if (running) {
       const speedDelta = targetSpeed - rival.speedMps;
       const maxDelta = (speedDelta > 0 ? rival.acceleration : 8.5) * dt;
@@ -1913,6 +1987,12 @@ function animate() {
     const rivalLane = rival.lane + Math.sin(now * 0.46 + rival.phase) * 0.38;
     const weave = Math.sin(now * 0.6 + rival.phase);
     const frame = placeCar(rival.car, rival.progress, rivalLane, weave * 0.018, -weave * 0.012);
+    rivalFrames.push(frame);
+    const decelerating = rival.speedMps < previousSpeed - 0.015 || targetSpeed < rival.speedMps - 1.5;
+    const rivalTarget = decelerating ? 1 : rival.speedMps < 2 ? 0.72 : 0.46;
+    rival.tailIntensity = THREE.MathUtils.lerp(rival.tailIntensity, rivalTarget, 1 - Math.pow(0.001, dt));
+    const distanceScale = THREE.MathUtils.clamp(camera.position.distanceTo(rival.car.position) / 40, 1, 2.2);
+    updateTailLights(rival.car, rival.tailIntensity, dt, distanceScale);
     if (i === 0) leadFrame = frame;
   });
   const playerMap = minimapPoint(playerProgress);
@@ -1947,10 +2027,25 @@ function animate() {
       tangent: playerFrame.tangent.clone(),
       normal: playerFrame.normal.clone(),
       born: now,
+      strength: THREE.MathUtils.clamp(speedRatio, 0.15, 1) * playerTailIntensity,
+    });
+    rivalFrames.forEach((frame, i) => {
+      const rear = frame.point.clone().addScaledVector(frame.tangent, -1.8).addScaledVector(frame.normal, 0.56);
+      rivalTailSamples[i].push({
+        left: rear.clone().addScaledVector(frame.right, -0.57),
+        right: rear.clone().addScaledVector(frame.right, 0.57),
+        tangent: frame.tangent.clone(),
+        normal: frame.normal.clone(),
+        born: now,
+        strength: THREE.MathUtils.clamp(rivals[i].speedMps / rivals[i].topSpeedMps, 0.15, 1) * rivals[i].tailIntensity,
+      });
     });
   }
   while (samples.length && now - samples[0].born > TRAIL_LIFE) samples.shift();
   while (playerSamples.length && now - playerSamples[0].born > PLAYER_TRAIL_LIFE) playerSamples.shift();
+  rivalTailSamples.forEach(source => {
+    while (source.length && now - source[0].born > RIVAL_TAIL_LIFE) source.shift();
+  });
   updateRibbon(mainLeft, samples, "left", 0.13, now, TRAIL_LIFE);
   updateRibbon(mainRight, samples, "right", 0.13, now, TRAIL_LIFE);
   updateRibbon(bleedLeft, samples, "left", 0.286, now, TRAIL_LIFE, 1, true);
@@ -1959,6 +2054,10 @@ function animate() {
   updateRibbon(playerMainRight, playerSamples, "right", 0.1, now, PLAYER_TRAIL_LIFE, 0.52);
   updateRibbon(playerBleedLeft, playerSamples, "left", 0.22, now, PLAYER_TRAIL_LIFE, 0.38, true);
   updateRibbon(playerBleedRight, playerSamples, "right", 0.22, now, PLAYER_TRAIL_LIFE, 0.38, true);
+  rivalTailSamples.forEach((source, i) => {
+    updateRibbon(rivalTailMeshes[i].left, source, "left", 0.1, now, RIVAL_TAIL_LIFE, 0.55);
+    updateRibbon(rivalTailMeshes[i].right, source, "right", 0.1, now, RIVAL_TAIL_LIFE, 0.55);
+  });
 
   const cameraShake = running ? Math.sin(now * 43) * (0.008 + speedRatio * 0.035) : 0;
   if (replaying) {
