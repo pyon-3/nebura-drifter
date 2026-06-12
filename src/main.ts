@@ -360,7 +360,7 @@ let smokeCursor = 0;
 let lastSmokeEmit = 0;
 
 type FireworkParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number; rocket: boolean };
-const fireworkParticles: FireworkParticle[] = Array.from({ length: 140 }, (_, i) => {
+const fireworkParticles: FireworkParticle[] = Array.from({ length: 420 }, (_, i) => {
   const material = new THREE.SpriteMaterial({
     map: smokeTexture,
     color: [0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4],
@@ -378,6 +378,55 @@ let fireworkCursor = 0;
 let lastFirework = 0;
 let lastTouchEnd = 0;
 
+function makeCarSection(
+  frontZ: number,
+  rearZ: number,
+  bottomY: number,
+  topY: number,
+  frontBottomHalfWidth: number,
+  rearBottomHalfWidth: number,
+  frontTopHalfWidth: number,
+  rearTopHalfWidth: number,
+) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute([
+    -frontBottomHalfWidth, bottomY, frontZ, frontBottomHalfWidth, bottomY, frontZ,
+    -frontTopHalfWidth, topY, frontZ, frontTopHalfWidth, topY, frontZ,
+    -rearBottomHalfWidth, bottomY, rearZ, rearBottomHalfWidth, bottomY, rearZ,
+    -rearTopHalfWidth, topY, rearZ, rearTopHalfWidth, topY, rearZ,
+  ], 3));
+  geometry.setIndex([
+    0, 1, 3, 0, 3, 2,
+    5, 4, 6, 5, 6, 7,
+    4, 0, 2, 4, 2, 6,
+    1, 5, 7, 1, 7, 3,
+    2, 3, 7, 2, 7, 6,
+    4, 5, 1, 4, 1, 0,
+  ]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function makeNumberTexture(rival: boolean) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext("2d")!;
+  context.fillStyle = "#f3f0df";
+  context.fillRect(0, 0, 128, 128);
+  context.strokeStyle = "#17191d";
+  context.lineWidth = 7;
+  context.strokeRect(5, 5, 118, 118);
+  context.fillStyle = "#17191d";
+  context.font = "bold 76px sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(rival ? "7" : "3", 64, 68);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function makeCar(bodyColor: number, rival = false) {
   const car = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.34, metalness: 0.68, flatShading: true });
@@ -385,81 +434,152 @@ function makeCar(bodyColor: number, rival = false) {
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x163f5e, roughness: 0.18, metalness: 0.72, flatShading: true });
   const tireMat = new THREE.MeshStandardMaterial({ color: 0x080a0d, roughness: 0.9, metalness: 0.08, flatShading: true });
   const rimMat = new THREE.MeshStandardMaterial({ color: 0x8da4b0, roughness: 0.3, metalness: 0.9, flatShading: true });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.38, 3.25), bodyMat);
-  body.position.y = 0.48;
-  car.add(body);
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.16, 1.05), bodyMat);
-  hood.position.set(0, 0.7, 1.05);
-  hood.rotation.x = -0.055;
-  car.add(hood);
-  const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.16, 0.72), bodyMat);
-  trunk.position.set(0, 0.68, -1.28);
-  trunk.rotation.x = 0.035;
-  car.add(trunk);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.52, 1.45, 1, 1, 1), glassMat);
-  cabin.position.set(0, 0.91, -0.14);
-  cabin.scale.set(0.88, 1, 0.94);
+  const darkMat = new THREE.MeshBasicMaterial({ color: 0x020507 });
+  const brakeMat = new THREE.MeshStandardMaterial({ color: rival ? 0xff405c : 0x39dff5, roughness: 0.4, metalness: 0.5, flatShading: true });
+
+  car.add(new THREE.Mesh(makeCarSection(1.78, -1.72, 0.23, 0.57, 0.69, 0.79, 0.87, 0.9), bodyMat));
+  car.add(new THREE.Mesh(makeCarSection(1.72, 0.82, 0.56, 0.67, 0.79, 0.88, 0.58, 0.79), bodyMat));
+  car.add(new THREE.Mesh(makeCarSection(0.82, 0.17, 0.57, 0.72, 0.88, 0.88, 0.79, 0.8), bodyMat));
+  car.add(new THREE.Mesh(makeCarSection(-0.72, -1.68, 0.56, 0.73, 0.88, 0.77, 0.82, 0.7), bodyMat));
+
+  const cabin = new THREE.Mesh(makeCarSection(0.23, -1.08, 0.7, 1.12, 0.74, 0.77, 0.49, 0.59), glassMat);
   car.add(cabin);
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.08, 0.78), bodyMat);
-  roof.position.set(0, 1.2, -0.18);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.055, 0.77), bodyMat);
+  roof.position.set(0, 1.14, -0.43);
   car.add(roof);
+  const rearHatch = new THREE.Mesh(makeCarSection(-0.7, -1.34, 0.72, 0.88, 0.8, 0.72, 0.66, 0.61), glassMat);
+  car.add(rearHatch);
+  for (const x of [-0.57, 0.57]) {
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.42, 0.08), trimMat);
+    pillar.position.set(x, 0.89, -0.46);
+    pillar.rotation.x = -0.04;
+    car.add(pillar);
+
+    const mirrorStem = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.055, 0.08), trimMat);
+    mirrorStem.position.set(x > 0 ? 0.79 : -0.79, 0.82, 0.23);
+    car.add(mirrorStem);
+    const mirror = new THREE.Mesh(makeCarSection(0.34, 0.17, 0.78, 0.88, 0.13, 0.13, 0.1, 0.1), bodyMat);
+    mirror.position.x = x > 0 ? 0.84 : -0.84;
+    car.add(mirror);
+  }
+
   for (const z of [-0.9, 1.03]) {
-    for (const x of [-0.91, 0.91]) {
-      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10), tireMat);
+    for (const x of [-0.94, 0.94]) {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.25, 16), tireMat);
       tire.rotation.z = Math.PI / 2;
       tire.position.set(x, 0.34, z);
       car.add(tire);
-      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.235, 8), rimMat);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.265, 12), rimMat);
       rim.rotation.z = Math.PI / 2;
       rim.position.set(x, 0.34, z);
       car.add(rim);
+      const brake = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.272, 12), brakeMat);
+      brake.rotation.z = Math.PI / 2;
+      brake.position.set(x, 0.34, z);
+      car.add(brake);
     }
   }
-  for (const x of [-0.93, 0.93]) {
+
+  for (const x of [-0.94, 0.94]) {
     const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 2.45), trimMat);
     skirt.position.set(x, 0.27, 0);
     car.add(skirt);
+    for (const z of [-0.9, 1.03]) {
+      const fender = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.78), bodyMat);
+      fender.position.set(x, 0.61, z);
+      car.add(fender);
+    }
+    const sideIntake = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.24, 0.64), darkMat);
+    sideIntake.position.set(x, 0.61, -0.48);
+    car.add(sideIntake);
   }
-  const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.2, 0.22), trimMat);
-  frontBumper.position.set(0, 0.3, 1.68);
-  car.add(frontBumper);
-  const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.2, 0.22), trimMat);
-  bumper.position.set(0, 0.32, -1.73);
-  car.add(bumper);
-  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.12, 0.025), new THREE.MeshBasicMaterial({ color: 0x020507 }));
+
+  const stripeMat = new THREE.MeshBasicMaterial({ color: rival ? 0xffd744 : 0xf0f3e9 });
+  for (const x of [-0.16, 0.16]) {
+    const hoodStripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.014, 1.28), stripeMat);
+    hoodStripe.position.set(x, 0.7, 0.92);
+    hoodStripe.rotation.x = -0.035;
+    car.add(hoodStripe);
+    const roofStripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.014, 0.7), stripeMat);
+    roofStripe.position.set(x, 1.175, -0.42);
+    car.add(roofStripe);
+  }
+  const numberMaterial = new THREE.MeshBasicMaterial({ map: makeNumberTexture(rival), side: THREE.DoubleSide });
+  for (const x of [-0.946, 0.946]) {
+    const numberPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.46), numberMaterial);
+    numberPanel.rotation.y = Math.PI / 2;
+    numberPanel.position.set(x, 0.62, -0.25);
+    car.add(numberPanel);
+  }
+
+  const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.09, 0.38), trimMat);
+  splitter.position.set(0, 0.22, 1.68);
+  car.add(splitter);
+  const rearDiffuser = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.18, 0.3), trimMat);
+  rearDiffuser.position.set(0, 0.29, -1.7);
+  car.add(rearDiffuser);
+  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.16, 0.025), darkMat);
   grille.position.set(0, 0.4, 1.805);
   car.add(grille);
-  for (const x of [-0.57, 0.57]) {
-    const tailHousing = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 0.19, 0.12),
-      new THREE.MeshBasicMaterial({ color: 0x5a0714 }),
-    );
-    tailHousing.position.set(x, 0.56, -1.78);
-    car.add(tailHousing);
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.78, 0.32),
-      new THREE.MeshBasicMaterial({ color: 0xff2448, blending: THREE.AdditiveBlending, transparent: true, opacity: rival ? 0.64 : 0.48, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    glow.position.set(x, 0.56, -1.847);
-    car.add(glow);
-    const bloom = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.18, 0.54),
-      new THREE.MeshBasicMaterial({ color: 0xff163d, blending: THREE.AdditiveBlending, transparent: true, opacity: rival ? 0.18 : 0.13, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    bloom.position.set(x, 0.56, -1.84);
-    car.add(bloom);
-    const lamp = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, 0.12, 0.08),
-      new THREE.MeshBasicMaterial({ color: rival ? 0xff7180 : 0xff455c }),
-    );
-    lamp.position.set(x, 0.56, -1.86);
-    car.add(lamp);
+  for (const x of [-0.5, 0.5]) {
+    const intake = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.1, 0.03), darkMat);
+    intake.position.set(x, 0.34, 1.81);
+    car.add(intake);
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.18, 10), trimMat);
+    exhaust.rotation.x = Math.PI / 2;
+    exhaust.position.set(x, 0.3, -1.85);
+    car.add(exhaust);
+  }
 
-    const headlamp = new THREE.Mesh(
-      new THREE.BoxGeometry(0.38, 0.11, 0.07),
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(rival ? 1.72 : 1.66, 0.075, 0.38), trimMat);
+  wing.position.set(0, rival ? 1.1 : 1.05, -1.45);
+  wing.rotation.x = -0.08;
+  car.add(wing);
+  for (const x of [-0.48, 0.48]) {
+    const wingStay = new THREE.Mesh(new THREE.BoxGeometry(0.06, rival ? 0.45 : 0.4, 0.08), trimMat);
+    wingStay.position.set(x, rival ? 0.88 : 0.85, -1.45);
+    car.add(wingStay);
+  }
+
+  const rearPanel = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.29, 0.07), darkMat);
+  rearPanel.position.set(0, 0.55, -1.765);
+  car.add(rearPanel);
+  const tailGlowMat = new THREE.MeshBasicMaterial({
+    color: rival ? 0xff3554 : 0xff193f,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    opacity: rival ? 0.9 : 0.72,
+    depthWrite: false,
+  });
+  for (const x of [-0.61, -0.39, -0.17, 0.17, 0.39, 0.61]) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.105, 0.045), tailGlowMat);
+    lamp.position.set(x, 0.57, -1.815);
+    car.add(lamp);
+  }
+  const tailBloom = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.75, 0.42),
+    new THREE.MeshBasicMaterial({ color: 0xff1745, blending: THREE.AdditiveBlending, transparent: true, opacity: rival ? 0.2 : 0.14, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  tailBloom.position.set(0, 0.56, -1.84);
+  car.add(tailBloom);
+
+  for (const x of [-0.57, 0.57]) {
+    const headlampHousing = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.055, 0.25), trimMat);
+    headlampHousing.position.set(x, 0.67, 1.35);
+    headlampHousing.rotation.x = -0.035;
+    car.add(headlampHousing);
+    const hoodLamp = new THREE.Mesh(
+      new THREE.BoxGeometry(0.38, 0.025, 0.17),
       new THREE.MeshBasicMaterial({ color: 0xbffaff }),
     );
-    headlamp.position.set(x, 0.5, 1.79);
+    hoodLamp.position.set(x, 0.704, 1.36);
+    hoodLamp.rotation.x = -0.035;
+    car.add(hoodLamp);
+    const headlamp = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.07, 0.055),
+      new THREE.MeshBasicMaterial({ color: 0xbffaff }),
+    );
+    headlamp.position.set(x, 0.47, 1.795);
     car.add(headlamp);
 
     const beamGeometry = new THREE.BufferGeometry();
@@ -1458,36 +1578,55 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
 }
 function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
   const beatPulse = getBgmPulse();
-  if (now - lastFirework < THREE.MathUtils.lerp(0.98, 0.36, beatPulse)) return;
+  if (now - lastFirework < THREE.MathUtils.lerp(0.62, 0.22, beatPulse)) return;
   lastFirework = now;
-  const launch = frame.point.clone()
-    .addScaledVector(frame.tangent, 45 + Math.random() * 28)
-    .addScaledVector(frame.right, (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 22))
-    .addScaledVector(frame.normal, 0.4);
-  const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
-  particle.life = particle.maxLife = 0.72 + Math.random() * 0.25;
-  particle.rocket = true;
-  particle.sprite.visible = true;
-  particle.sprite.position.copy(launch);
-  particle.sprite.scale.setScalar(0.28 + beatPulse * 0.18);
-  particle.velocity.set((Math.random() - 0.5) * 1.6, 21 + Math.random() * 7, (Math.random() - 0.5) * 1.6);
-  updateFireworkColor(particle, beatPulse, fireworkCursor);
+  const launchCount = beatPulse > 0.68 ? 3 : 2;
+  for (let i = 0; i < launchCount; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const launch = frame.point.clone()
+      .addScaledVector(frame.tangent, 40 + Math.random() * 38 + i * 6)
+      .addScaledVector(frame.right, side * (18 + Math.random() * 30))
+      .addScaledVector(frame.normal, 0.4);
+    const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
+    particle.life = particle.maxLife = 0.62 + Math.random() * 0.32;
+    particle.rocket = true;
+    particle.sprite.visible = true;
+    particle.sprite.position.copy(launch);
+    particle.sprite.scale.setScalar(0.42 + beatPulse * 0.25);
+    particle.velocity.set(side * (0.8 + Math.random() * 1.5), 24 + Math.random() * 10, (Math.random() - 0.5) * 2.4);
+    updateFireworkColor(particle, beatPulse, fireworkCursor + i * 7);
+  }
 }
 function burstFirework(center: THREE.Vector3) {
   const beatPulse = getBgmPulse();
-  const count = 24 + Math.round(beatPulse * 32);
+  const count = 62 + Math.round(beatPulse * 50);
+  const hueOffset = fireworkCursor;
   for (let i = 0; i < count; i++) {
     const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
-    const angle = (i / count) * Math.PI * 2 + Math.random() * 0.18;
-    const elevation = (Math.random() - 0.36) * 0.72;
-    const speed = 5 + Math.random() * 5 + beatPulse * 4;
-    particle.life = particle.maxLife = 1.1 + Math.random() * 0.55;
+    const y = 1 - (i / Math.max(1, count - 1)) * 2;
+    const radius = Math.sqrt(Math.max(0, 1 - y * y));
+    const angle = i * Math.PI * (3 - Math.sqrt(5)) + Math.random() * 0.12;
+    const speed = 8 + Math.random() * 6 + beatPulse * 5;
+    particle.life = particle.maxLife = 1.35 + Math.random() * 0.8;
     particle.rocket = false;
     particle.sprite.visible = true;
     particle.sprite.position.copy(center);
-    particle.sprite.scale.setScalar(0.22 + Math.random() * 0.18 + beatPulse * 0.1);
-    particle.velocity.set(Math.cos(angle) * speed, elevation * speed, Math.sin(angle) * speed);
-    updateFireworkColor(particle, beatPulse, i);
+    particle.sprite.scale.setScalar(0.3 + Math.random() * 0.28 + beatPulse * 0.16);
+    particle.velocity.set(Math.cos(angle) * radius * speed, y * speed, Math.sin(angle) * radius * speed);
+    updateFireworkColor(particle, beatPulse, hueOffset + Math.floor(i / 12));
+  }
+  const ringCount = 32;
+  for (let i = 0; i < ringCount; i++) {
+    const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
+    const angle = (i / ringCount) * Math.PI * 2;
+    const speed = 15 + beatPulse * 6;
+    particle.life = particle.maxLife = 1.05 + Math.random() * 0.35;
+    particle.rocket = false;
+    particle.sprite.visible = true;
+    particle.sprite.position.copy(center);
+    particle.sprite.scale.setScalar(0.46 + beatPulse * 0.18);
+    particle.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed, (Math.random() - 0.5) * 1.2);
+    updateFireworkColor(particle, 1, hueOffset + 18);
   }
 }
 function getBgmPulse() {
@@ -1522,7 +1661,9 @@ function updateEffects(dt: number) {
       particle.sprite.scale.setScalar(0.22 + pulse * 0.22);
       updateFireworkColor(particle, pulse, fireworkCursor);
     } else {
-      material.opacity = Math.pow(Math.max(0, particle.life) / particle.maxLife, 1.7);
+      const remaining = Math.max(0, particle.life) / particle.maxLife;
+      material.opacity = Math.min(1, remaining * 1.65) * (0.78 + Math.sin(particle.life * 34) * 0.22);
+      particle.sprite.scale.multiplyScalar(Math.pow(0.84, dt));
     }
     if (particle.life <= 0) {
       if (particle.rocket) burstFirework(particle.sprite.position.clone());
