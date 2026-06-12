@@ -5,20 +5,38 @@ import "./style.css";
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const isMobileSafari = /iPhone|iPad|iPod/i.test(navigator.userAgent) && /WebKit/i.test(navigator.userAgent);
-const safeBlending = isMobile ? THREE.NormalBlending : THREE.AdditiveBlending;
+const debugParams = new URLSearchParams(location.search);
+const debugFlag = (name: string) => debugParams.get(name) === "1";
+const debugFlags = {
+  noGlow: debugFlag("noglow"),
+  noTrail: debugFlag("notrail"),
+  noBleed: debugFlag("nobleed"),
+  noBloom: debugFlag("nobloom"),
+  noParticles: debugFlag("noparticles"),
+  noSprites: debugFlag("nosprites"),
+  mobileSafe: debugFlag("mobileSafe"),
+};
+const useMobileSafe = isMobile || debugFlags.mobileSafe;
+const disableGlow = debugFlags.noGlow || useMobileSafe;
+const disableTrail = debugFlags.noTrail;
+const disableBleed = debugFlags.noBleed || useMobileSafe;
+const disableBloom = debugFlags.noBloom || useMobileSafe;
+const disableParticles = debugFlags.noParticles || useMobileSafe;
+const disableSprites = debugFlags.noSprites || useMobileSafe;
+const safeBlending = useMobileSafe ? THREE.NormalBlending : THREE.AdditiveBlending;
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: !isMobile,
+  antialias: !useMobileSafe,
   alpha: false,
   premultipliedAlpha: false,
   powerPreference: "high-performance",
-  precision: isMobileSafari ? "mediump" : "highp",
+  precision: isMobileSafari || debugFlags.mobileSafe ? "mediump" : "highp",
 });
-renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.25 : 1.7));
+renderer.setPixelRatio(Math.min(devicePixelRatio, useMobileSafe ? 1.25 : 1.7));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 2.38;
+renderer.toneMapping = disableBloom ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = disableBloom ? 1 : 2.38;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05091a);
@@ -32,6 +50,39 @@ let fpsSampleStarted = performance.now();
 let fpsSampleFrames = 0;
 let slowFpsWindows = 0;
 let fastFpsWindows = 0;
+
+function addVisualDebugPanel() {
+  if (!isMobile && !Object.values(debugFlags).some(Boolean)) return;
+  const panel = document.createElement("div");
+  panel.style.cssText = "position:fixed;z-index:9999;left:8px;top:max(8px,env(safe-area-inset-top));max-width:calc(100vw - 16px);padding:8px;background:rgba(0,0,0,.82);color:#fff;font:11px/1.35 monospace;border:1px solid #57eaff;pointer-events:auto";
+  const flags: [string, keyof typeof debugFlags][] = [
+    ["noglow", "noGlow"], ["notrail", "noTrail"], ["nobleed", "noBleed"], ["nobloom", "noBloom"],
+    ["noparticles", "noParticles"], ["nosprites", "noSprites"], ["mobileSafe", "mobileSafe"],
+  ];
+  const links = flags.map(([queryName, key]) => {
+    const params = new URLSearchParams(location.search);
+    if (debugFlags[key]) params.delete(queryName); else params.set(queryName, "1");
+    const href = `${location.pathname}?${params.toString()}${location.hash}`;
+    return `<a href="${href}" style="display:inline-block;margin:2px;padding:3px 5px;color:${debugFlags[key] ? "#111" : "#8ef6ff"};background:${debugFlags[key] ? "#8ef6ff" : "#172633"};text-decoration:none">${queryName}:${debugFlags[key] ? "OFF" : "ON"}</a>`;
+  }).join("");
+  panel.innerHTML = `<b>MOBILE VISUAL DEBUG</b><br>safe:${useMobileSafe ? "ON" : "OFF"} bloom:${disableBloom ? "OFF" : "ON"}<br>${links}`;
+  document.body.appendChild(panel);
+}
+addVisualDebugPanel();
+
+function setToneMappingExposure(value: number) {
+  renderer.toneMappingExposure = disableBloom ? 1 : value;
+}
+
+function markEffect<T extends THREE.Object3D>(object: T, group: "glow" | "trail" | "bleed" | "particles", name: string) {
+  object.name = name;
+  object.userData.effectGroup = group;
+  return object;
+}
+
+function finite(v: THREE.Vector3) {
+  return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+}
 
 const hemisphere = new THREE.HemisphereLight(0xb7caff, 0x1a1e3d, 1.62);
 scene.add(hemisphere);
@@ -104,6 +155,7 @@ function addWireEnvironment() {
     top.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     gate.add(top);
     const glow = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(18.2, 6.4, 0.5)), glowMaterial);
+    markEffect(glow, "glow", `gate-glow-${i}`);
     glow.position.copy(f.point).addScaledVector(f.normal, 3.2);
     glow.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     gate.add(glow);
@@ -118,6 +170,7 @@ function addWireEnvironment() {
     new THREE.TorusGeometry(54, 0.8, 4, 48),
     new THREE.MeshBasicMaterial({ color: 0x66ecff, wireframe: true, transparent: true, opacity: 0.72, blending: THREE.AdditiveBlending }),
   );
+  markEffect(landmarkRing, "glow", "landmark-glow-ring");
   landmarkRing.position.set(-320, 72, 230);
   landmarkRing.rotation.x = Math.PI * 0.4;
   stageGroup.add(landmarkRing);
@@ -457,7 +510,8 @@ for (let i = 0; i < 260; i++) {
 }
 starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPos, 3));
 const starMaterial = new THREE.PointsMaterial({ color: 0x9ac7ff, size: 1.15, transparent: true, opacity: 0.55 });
-scene.add(new THREE.Points(starGeo, starMaterial));
+const stars = markEffect(new THREE.Points(starGeo, starMaterial), "particles", "background-stars");
+scene.add(stars);
 const finalRings = new THREE.Group();
 const finalRingMaterials: THREE.MeshBasicMaterial[] = [];
 for (let i = 0; i < 3; i++) {
@@ -470,6 +524,7 @@ for (let i = 0; i < 3; i++) {
     depthWrite: false,
   });
   const ring = new THREE.Mesh(new THREE.TorusGeometry(190 + i * 92, 0.5 + i * 0.18, 4, 80), material);
+  markEffect(ring, "glow", `final-glow-ring-${i}`);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 16 + i * 18;
   finalRingMaterials.push(material);
@@ -517,6 +572,8 @@ const tailSpillTexture = (() => {
 const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
   const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: safeBlending, alphaTest: 0.02 });
   const sprite = new THREE.Sprite(material);
+  sprite.name = "drift-smoke-sprite";
+  sprite.userData.effectGroup = "particles";
   sprite.visible = false;
   scene.add(sprite);
   return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1 };
@@ -544,6 +601,7 @@ const fireworkMaterial = new THREE.ShaderMaterial({
   vertexColors: true,
 });
 const fireworkPoints = new THREE.Points(fireworkGeometry, fireworkMaterial);
+markEffect(fireworkPoints, "particles", "firework-points");
 fireworkPoints.frustumCulled = false;
 scene.add(fireworkPoints);
 const fireworkParticles: FireworkParticle[] = Array.from({ length: 700 }, (_, i) => {
@@ -761,8 +819,9 @@ function makeCar(bodyColor: number, rival = false) {
   for (const x of [-0.61, -0.39, -0.17, 0.17, 0.39, 0.61]) {
     const housing = new THREE.Mesh(
       new THREE.BoxGeometry(0.17, 0.115, 0.045),
-      new THREE.MeshBasicMaterial({ color: 0x5b0716 }),
+      new THREE.MeshBasicMaterial({ color: useMobileSafe ? 0xff2244 : 0x5b0716 }),
     );
+    housing.name = "taillight-basic-core";
     housing.position.set(x, 0.57, -1.815);
     car.add(housing);
     const haloMaterial = new THREE.SpriteMaterial({
@@ -775,9 +834,12 @@ function makeCar(bodyColor: number, rival = false) {
       alphaTest: 0.02,
     });
     const halo = new THREE.Sprite(haloMaterial);
+    halo.name = "taillight-glow-sprite";
+    halo.userData.effectGroup = "glow";
+    halo.userData.requiresTexture = true;
     halo.position.set(x, 0.57, -1.855);
     halo.scale.setScalar(0.72);
-    halo.visible = !isMobile;
+    halo.visible = !disableSprites && !disableGlow;
     car.add(halo);
     const coreMaterial = new THREE.SpriteMaterial({
       map: smokeTexture,
@@ -789,9 +851,12 @@ function makeCar(bodyColor: number, rival = false) {
       alphaTest: 0.02,
     });
     const core = new THREE.Sprite(coreMaterial);
+    core.name = "taillight-core-sprite";
+    core.userData.effectGroup = "glow";
+    core.userData.requiresTexture = true;
     core.position.set(x, 0.57, -1.87);
     core.scale.setScalar(0.22);
-    core.visible = !isMobile;
+    core.visible = !disableSprites && !disableGlow;
     car.add(core);
     tailCoreMaterials.push(coreMaterial);
     tailHaloMaterials.push(haloMaterial);
@@ -810,9 +875,11 @@ function makeCar(bodyColor: number, rival = false) {
     new THREE.PlaneGeometry(2.8, 4.2),
     spillMaterial,
   );
+  markEffect(tailSpill, "bleed", "taillight-ground-bleed");
+  tailSpill.userData.requiresTexture = true;
   tailSpill.position.set(0, 0.045, -2.85);
   tailSpill.rotation.x = -Math.PI / 2;
-  tailSpill.visible = !isMobile;
+  tailSpill.visible = !disableBleed;
   car.add(tailSpill);
   car.userData.tailLights = { coreMaterials: tailCoreMaterials, haloMaterials: tailHaloMaterials, sprites: tailSprites, spillMaterial, intensity: 0.45, rival };
 
@@ -859,7 +926,8 @@ function makeCar(bodyColor: number, rival = false) {
         side: THREE.DoubleSide,
       }),
     );
-    beam.visible = !isMobile;
+    markEffect(beam, "glow", "headlight-glow-plane");
+    beam.visible = !disableGlow;
     car.add(beam);
   }
   mergeCarBodyParts(car);
@@ -911,24 +979,103 @@ playerTrailMaterial.uniforms.tint.value = new THREE.Color(0xff2445);
 const playerBleedMaterial = trailMaterial.clone();
 playerBleedMaterial.uniforms.tint.value = new THREE.Color(0x9d0b20);
 
-function makeTrailMesh(material: THREE.Material) {
+function makeTrailMesh(material: THREE.Material, group: "trail" | "bleed", name: string) {
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  markEffect(mesh, group, name);
   mesh.frustumCulled = false;
   scene.add(mesh);
   return mesh;
 }
-const mainLeft = makeTrailMesh(trailMaterial);
-const mainRight = makeTrailMesh(trailMaterial);
-const bleedLeft = makeTrailMesh(bleedMaterial);
-const bleedRight = makeTrailMesh(bleedMaterial);
-const playerMainLeft = makeTrailMesh(playerTrailMaterial);
-const playerMainRight = makeTrailMesh(playerTrailMaterial);
-const playerBleedLeft = makeTrailMesh(playerBleedMaterial);
-const playerBleedRight = makeTrailMesh(playerBleedMaterial);
-const rivalTailMeshes = rivals.map(() => ({
-  left: makeTrailMesh(trailMaterial.clone()),
-  right: makeTrailMesh(trailMaterial.clone()),
+const mainLeft = makeTrailMesh(trailMaterial, "trail", "lead-tail-trail-left");
+const mainRight = makeTrailMesh(trailMaterial, "trail", "lead-tail-trail-right");
+const bleedLeft = makeTrailMesh(bleedMaterial, "bleed", "lead-ground-bleed-left");
+const bleedRight = makeTrailMesh(bleedMaterial, "bleed", "lead-ground-bleed-right");
+const playerMainLeft = makeTrailMesh(playerTrailMaterial, "trail", "player-tail-trail-left");
+const playerMainRight = makeTrailMesh(playerTrailMaterial, "trail", "player-tail-trail-right");
+const playerBleedLeft = makeTrailMesh(playerBleedMaterial, "bleed", "player-ground-bleed-left");
+const playerBleedRight = makeTrailMesh(playerBleedMaterial, "bleed", "player-ground-bleed-right");
+const rivalTailMeshes = rivals.map((_, i) => ({
+  left: makeTrailMesh(trailMaterial.clone(), "trail", `rival-${i}-tail-trail-left`),
+  right: makeTrailMesh(trailMaterial.clone(), "trail", `rival-${i}-tail-trail-right`),
 }));
+
+function objectMaterials(object: THREE.Object3D) {
+  const material = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+  return material ? Array.isArray(material) ? material : [material] : [];
+}
+
+function patchEffectTexturesAndVisibility() {
+  scene.traverse(object => {
+    const group = object.userData.effectGroup as "glow" | "trail" | "bleed" | "particles" | undefined;
+    if (disableSprites && object instanceof THREE.Sprite) object.visible = false;
+    if (disableGlow && group === "glow") object.visible = false;
+    if (disableTrail && group === "trail") object.visible = false;
+    if (disableBleed && group === "bleed") object.visible = false;
+    if (disableParticles && group === "particles") object.visible = false;
+    const materials = objectMaterials(object);
+    for (const material of materials) {
+      const textures = Object.values(material).filter((value): value is THREE.Texture => value instanceof THREE.Texture);
+      if (group || object instanceof THREE.Sprite) {
+        for (const texture of textures) {
+          texture.wrapS = THREE.ClampToEdgeWrapping;
+          texture.wrapT = THREE.ClampToEdgeWrapping;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.generateMipmaps = false;
+          texture.needsUpdate = true;
+        }
+      }
+      if (useMobileSafe && group && material.transparent) {
+        if ("color" in material && material.color instanceof THREE.Color && material.color.getHex() === 0xffffff) material.color.setHex(0xff2244);
+        material.opacity = THREE.MathUtils.clamp(material.opacity, 0, 0.98);
+        material.depthWrite = false;
+      }
+      if ((object instanceof THREE.Sprite || object.userData.requiresTexture) && !("map" in material && material.map instanceof THREE.Texture)) {
+        object.visible = false;
+        console.warn("[visual-debug] hidden object with missing texture", object.name || object.type);
+      }
+    }
+  });
+}
+
+function auditSceneRendering() {
+  const rows: Record<string, unknown>[] = [];
+  scene.traverse(object => {
+    for (const material of objectMaterials(object)) {
+      const map = "map" in material && material.map instanceof THREE.Texture ? material.map : undefined;
+      const relevant = object instanceof THREE.Sprite
+        || material instanceof THREE.SpriteMaterial
+        || material instanceof THREE.ShaderMaterial
+        || material.transparent
+        || material.blending === THREE.AdditiveBlending
+        || map instanceof THREE.CanvasTexture
+        || map instanceof THREE.DataTexture
+        || Boolean(map?.image);
+      if (!relevant) continue;
+      rows.push({
+        objectName: object.name || "(unnamed)",
+        objectType: object.type,
+        effectGroup: object.userData.effectGroup ?? "",
+        materialType: material.type,
+        transparent: material.transparent,
+        blending: material.blending,
+        textureType: map?.type ?? "",
+        mapImage: map?.image ?? null,
+        depthWrite: material.depthWrite,
+        depthTest: material.depthTest,
+      });
+    }
+  });
+  console.groupCollapsed(`[visual-debug] scene audit (${rows.length} render entries)`);
+  console.table(rows);
+  const composer = (globalThis as typeof globalThis & { effectComposer?: { passes?: unknown[] } }).effectComposer;
+  console.info("[visual-debug] EffectComposer passes", composer?.passes ?? "none");
+  console.info("[visual-debug] flags", { isMobile, useMobileSafe, ...debugFlags });
+  console.groupEnd();
+}
+
+patchEffectTexturesAndVisibility();
+auditSceneRendering();
 
 function updateRibbon(
   mesh: THREE.Mesh,
@@ -940,26 +1087,40 @@ function updateRibbon(
   strength = 1,
   bleed = false,
 ) {
-  if (reducedEffects) return;
+  if (reducedEffects || disableTrail && !bleed || disableBleed && bleed) {
+    mesh.visible = false;
+    return;
+  }
   const positions: number[] = [];
   const alphas: number[] = [];
   const indices: number[] = [];
-  const usable = source.filter(s => now - s.born < life);
+  const usable = source.filter(s => now - s.born < life && finite(s.left) && finite(s.right) && finite(s.tangent) && finite(s.normal) && s.tangent.lengthSq() > 1e-8 && s.normal.lengthSq() > 1e-8);
+  const safeWidth = THREE.MathUtils.clamp(Number.isFinite(width) ? width : 0, 0.01, 1);
+  let validPointCount = 0;
   for (let i = 0; i < usable.length; i++) {
     const s = usable[i];
     const age = Math.min(1, (now - s.born) / life);
     const fadePower = bleed ? 3.2 : 2.65;
-    const alpha = Math.pow(1 - age, fadePower) * (bleed ? 0.18 : 0.72) * strength * (s.strength ?? 1);
+    const alpha = THREE.MathUtils.clamp(Math.pow(1 - age, fadePower) * (bleed ? 0.18 : 0.72) * strength * (s.strength ?? 1), 0, 1);
     const center = s[side].clone();
     if (bleed) center.addScaledVector(s.normal, -0.535);
-    const across = new THREE.Vector3().crossVectors(s.normal, s.tangent).normalize().multiplyScalar(width * 0.5);
-    positions.push(center.x - across.x, center.y, center.z - across.z, center.x + across.x, center.y, center.z + across.z);
+    const across = new THREE.Vector3().crossVectors(s.normal, s.tangent);
+    if (!finite(center) || !finite(across) || across.lengthSq() < 1e-8) continue;
+    across.normalize().multiplyScalar(safeWidth * 0.5);
+    const values = [center.x - across.x, center.y, center.z - across.z, center.x + across.x, center.y, center.z + across.z];
+    positions.push(...values.map(value => Number.isFinite(value) ? value : 0));
     alphas.push(alpha, alpha);
-    if (i > 0) {
-      const n = i * 2;
+    if (validPointCount > 0) {
+      const n = validPointCount * 2;
       indices.push(n - 2, n - 1, n, n - 1, n + 1, n);
     }
+    validPointCount++;
   }
+  if (positions.length < 12) {
+    mesh.visible = false;
+    return;
+  }
+  mesh.visible = true;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("aAlpha", new THREE.Float32BufferAttribute(alphas, 1));
@@ -1259,7 +1420,7 @@ function resetVisualTheme() {
   const dusk = timeMode === "dusk";
   document.body.classList.toggle("dusk", dusk);
   duskSky.visible = dusk;
-  renderer.toneMappingExposure = dusk ? 2.05 : 2.38;
+  setToneMappingExposure(dusk ? 2.05 : 2.38);
   hemisphere.intensity = dusk ? 1.35 : 1.62;
   hemisphere.color.setHex(dusk ? 0x8f789e : 0xb7caff);
   hemisphere.groundColor.setHex(dusk ? 0x32152d : 0x1a1e3d);
@@ -1305,7 +1466,7 @@ function updateFinalLapVisuals(now: number) {
       scene.fog.color.setHex(0x552738);
       scene.fog.density = 0.0013 + pulse * 0.00016;
     }
-    renderer.toneMappingExposure = 2.05 + pulse * 0.42;
+    setToneMappingExposure(2.05 + pulse * 0.42);
     hemisphere.intensity = 1.35 + pulse * 0.55;
     moon.intensity = 3.1 + pulse * 2.1;
     gridMaterials.forEach(material => {
@@ -1328,7 +1489,7 @@ function updateFinalLapVisuals(now: number) {
     scene.fog.color.copy(finalFogColor);
     scene.fog.density = 0.00145 + pulse * 0.00028;
   }
-  renderer.toneMappingExposure = 2.42 + pulse * 0.72;
+  setToneMappingExposure(2.42 + pulse * 0.72);
   hemisphere.intensity = 1.75 + pulse * 1.15;
   hemisphere.color.copy(finalAccentColor);
   moon.intensity = 2.35 + pulse * 3.1;
@@ -1740,6 +1901,7 @@ function switchStage(index: number) {
     makeRoad();
     addWireEnvironment();
     addAdvancedEnvironment();
+    patchEffectTexturesAndVisibility();
     floor.position.y = TRACK_FLOOR_Y;
     grid.position.y = TRACK_FLOOR_Y + 0.04;
     stageGroup.add(floor, grid);
@@ -1940,6 +2102,7 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
 }
 
 function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
+  if (disableParticles || disableSprites) return;
   if (now - lastSmokeEmit < 0.035) return;
   lastSmokeEmit = now;
   for (const side of [-1, 1]) {
@@ -1952,7 +2115,7 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
   }
 }
 function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
-  if (reducedEffects || finalLapFireworkCount >= 20) return;
+  if (disableParticles || reducedEffects || finalLapFireworkCount >= 20) return;
   const beatPulse = getBgmPulse();
   if (now - lastFirework < THREE.MathUtils.lerp(0.5, 0.34, beatPulse)) return;
   lastFirework = now;
@@ -2004,7 +2167,7 @@ function updateFireworkColor(particle: FireworkParticle, pulse: number, offset: 
   particle.color.setHSL(hue, 0.9, 0.58 + pulse * 0.24);
 }
 function updateEffects(dt: number) {
-  for (const particle of smokeParticles) {
+  if (!disableParticles && !disableSprites) for (const particle of smokeParticles) {
     if (particle.life <= 0) continue;
     particle.life -= dt;
     particle.sprite.position.addScaledVector(particle.velocity, dt);
@@ -2014,7 +2177,7 @@ function updateEffects(dt: number) {
     (particle.sprite.material as THREE.SpriteMaterial).opacity = Math.sin(Math.min(1, age) * Math.PI) * 0.24;
     if (particle.life <= 0) particle.sprite.visible = false;
   }
-  if (reducedEffects) return;
+  if (disableParticles || reducedEffects) return;
   for (const particle of fireworkParticles) {
     if (particle.life <= 0) continue;
     particle.life -= dt;
@@ -2050,10 +2213,10 @@ function updateEffects(dt: number) {
 function setReducedEffects(enabled: boolean) {
   if (reducedEffects === enabled) return;
   reducedEffects = enabled;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : isMobile ? 1.25 : 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : useMobileSafe ? 1.25 : 1.7));
   renderer.setSize(innerWidth, innerHeight);
-  fireworkPoints.visible = !enabled;
-  finalRings.visible = !enabled;
+  fireworkPoints.visible = !enabled && !disableParticles;
+  finalRings.visible = !enabled && !disableGlow;
   for (const particle of smokeParticles) {
     if (enabled) {
       particle.life = 0;
@@ -2068,10 +2231,11 @@ function setReducedEffects(enabled: boolean) {
     playerSamples.length = 0;
     rivalTailSamples.forEach(source => { source.length = 0; });
   }
-  for (const mesh of [mainLeft, mainRight, bleedLeft, bleedRight, playerMainLeft, playerMainRight, playerBleedLeft, playerBleedRight]) mesh.visible = !enabled;
+  for (const mesh of [mainLeft, mainRight, playerMainLeft, playerMainRight]) mesh.visible = !enabled && !disableTrail;
+  for (const mesh of [bleedLeft, bleedRight, playerBleedLeft, playerBleedRight]) mesh.visible = !enabled && !disableBleed;
   rivalTailMeshes.forEach(meshes => {
-    meshes.left.visible = !enabled;
-    meshes.right.visible = !enabled;
+    meshes.left.visible = !enabled && !disableTrail;
+    meshes.right.visible = !enabled && !disableTrail;
   });
 }
 
@@ -2178,7 +2342,7 @@ function animate() {
   const playerTailTarget = braking ? 1 : accelerating ? 0.42 : 0.68;
   playerTailIntensity = THREE.MathUtils.lerp(playerTailIntensity, playerTailTarget, 1 - Math.pow(0.001, dt));
   updateTailLights(playerCar, playerTailIntensity, dt);
-  if (!isMobile && !reducedEffects && running && drifting) emitDriftSmoke(playerFrame, now);
+  if (!disableParticles && !disableSprites && !reducedEffects && running && drifting) emitDriftSmoke(playerFrame, now);
   if (running && currentLap === TOTAL_LAPS) spawnFirework(playerFrame, now);
   updateEffects(dt);
   let leadFrame = trackFrame(0);
@@ -2335,6 +2499,6 @@ animate();
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : isMobile ? 1.25 : 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : useMobileSafe ? 1.25 : 1.7));
   renderer.setSize(innerWidth, innerHeight);
 });
