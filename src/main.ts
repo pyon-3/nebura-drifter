@@ -169,35 +169,6 @@ function addAdvancedEnvironment() {
       tunnelFrame.add(wallColumn);
     }
     addWireBox(tunnelFrame, 13.8, 0.2, 11.5, tunnelColors[i % tunnelColors.length], 0.82);
-    addWireBox(tunnelFrame, 13.8, 6.8, 0.18, tunnelColors[(i + 1) % tunnelColors.length], 0.76);
-    for (let brace = 0; brace < 4; brace++) {
-      const z = -4.2 + brace * 2.8;
-      const cross = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(13.0, 0.16, 0.18)),
-        new THREE.LineBasicMaterial({
-          color: brace % 2 === 0 ? 0x53efff : 0xff4f9e,
-          transparent: true,
-          opacity: 0.86,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-      cross.position.set(0, -3.05 + (brace % 2) * 0.2, z);
-      tunnelFrame.add(cross);
-    }
-    for (let brace = 0; brace < 5; brace++) {
-      const x = -4.8 + brace * 2.4;
-      const ridge = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 6.15, 0.16)),
-        new THREE.LineBasicMaterial({
-          color: brace % 2 === 0 ? 0x8b7aff : 0xf8d65e,
-          transparent: true,
-          opacity: 0.8,
-          blending: THREE.AdditiveBlending,
-        }),
-      );
-      ridge.position.set(x, 0, 0);
-      tunnelFrame.add(ridge);
-    }
     for (const side of [-1, 1]) {
       const light = new THREE.LineSegments(
         new THREE.EdgesGeometry(new THREE.BoxGeometry(0.2, 0.18, 9.5)),
