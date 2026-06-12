@@ -473,6 +473,20 @@ const smokeTexture = (() => {
   context.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(textureCanvas);
 })();
+const tailSpillTexture = (() => {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = textureCanvas.height = 128;
+  const context = textureCanvas.getContext("2d")!;
+  const gradient = context.createRadialGradient(64, 38, 2, 64, 52, 68);
+  gradient.addColorStop(0, "rgba(255,225,225,.92)");
+  gradient.addColorStop(0.12, "rgba(255,55,85,.56)");
+  gradient.addColorStop(0.42, "rgba(255,25,62,.18)");
+  gradient.addColorStop(0.72, "rgba(185,8,38,.045)");
+  gradient.addColorStop(1, "rgba(90,0,20,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(textureCanvas);
+})();
 const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
   const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   const sprite = new THREE.Sprite(material);
@@ -708,18 +722,19 @@ function makeCar(bodyColor: number, rival = false) {
     tailSprites.push(halo, core);
   }
   const spillMaterial = new THREE.MeshBasicMaterial({
+    map: tailSpillTexture,
     color: 0xff183d,
     blending: THREE.AdditiveBlending,
     transparent: true,
-    opacity: 0.06,
+    opacity: 0.08,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
   const tailSpill = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.2, 3.1),
+    new THREE.PlaneGeometry(2.8, 4.2),
     spillMaterial,
   );
-  tailSpill.position.set(0, 0.04, -2.5);
+  tailSpill.position.set(0, 0.045, -2.85);
   tailSpill.rotation.x = -Math.PI / 2;
   car.add(tailSpill);
   car.userData.tailLights = { coreMaterials: tailCoreMaterials, haloMaterials: tailHaloMaterials, sprites: tailSprites, spillMaterial, intensity: 0.45, rival };
@@ -892,7 +907,7 @@ function updateTailLights(car: THREE.Group, targetIntensity: number, dt: number,
     const brakeGrowth = index % 2 === 0 ? 0.34 : 0.16;
     sprite.scale.setScalar((base + brakeGrowth * intensity) * distanceScale);
   });
-  lights.spillMaterial.opacity = 0.045 + intensity * 0.12;
+  lights.spillMaterial.opacity = 0.035 + intensity * 0.11;
 }
 
 let armed = false;
@@ -960,6 +975,8 @@ const bgmTracks = [
   document.querySelector<HTMLAudioElement>("#bgm2")!,
   document.querySelector<HTMLAudioElement>("#bgm3")!,
 ];
+const duskBgm = document.querySelector<HTMLAudioElement>("#duskBgm")!;
+const allRaceBgmTracks = [...bgmTracks, duskBgm];
 let bgm = bgmTracks[stage.bgmIndex];
 const finishBgm = document.querySelector<HTMLAudioElement>("#finishBgm")!;
 const audioToggleEl = document.querySelector<HTMLButtonElement>("#audioToggle")!;
@@ -992,7 +1009,7 @@ bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
 sfxValueEl.value = sfxVolumeEl.value;
-bgmTracks.forEach(track => { track.volume = bgmVolume; });
+allRaceBgmTracks.forEach(track => { track.volume = bgmVolume; });
 finishBgm.volume = bgmVolume;
 totalLapsEl.textContent = String(TOTAL_LAPS);
 let engineOsc: OscillatorNode | null = null;
@@ -1499,7 +1516,7 @@ for (const input of [bgmVolumeEl, sfxVolumeEl]) input.addEventListener("pointerd
 bgmVolumeEl.addEventListener("input", () => {
   bgmVolume = Number(bgmVolumeEl.value) / 100;
   bgmValueEl.value = bgmVolumeEl.value;
-  bgmTracks.forEach(track => { track.volume = bgmVolume; });
+  allRaceBgmTracks.forEach(track => { track.volume = bgmVolume; });
   finishBgm.volume = bgmVolume;
   localStorage.setItem("nebura-bgm-volume", bgmVolumeEl.value);
 });
@@ -1596,7 +1613,7 @@ function resetRace() {
     particle.life = 0;
     particle.sprite.visible = false;
   }
-  bgmTracks.forEach(track => {
+  allRaceBgmTracks.forEach(track => {
     track.pause();
     track.currentTime = 0;
   });
@@ -1649,11 +1666,11 @@ function switchStage(index: number) {
     updateMinimapTrack();
     loadBestLap();
   }
-  bgmTracks.forEach(track => {
+  allRaceBgmTracks.forEach(track => {
     track.pause();
     track.currentTime = 0;
   });
-  bgm = bgmTracks[stage.bgmIndex];
+  bgm = timeMode === "dusk" ? duskBgm : bgmTracks[stage.bgmIndex];
   bgm.volume = bgmVolume;
   bgm.load();
   totalLapsEl.textContent = String(TOTAL_LAPS);
