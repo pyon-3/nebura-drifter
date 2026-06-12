@@ -84,6 +84,8 @@ type StageConfig = {
   segments: number;
   laps: number;
   aiTopSpeedBaseKmh: number;
+  bgmSrc: string;
+  beatRate: number;
   themes: LapTheme[];
 };
 
@@ -103,6 +105,8 @@ const STAGES: StageConfig[] = [{
   segments: 280,
   laps: 5,
   aiTopSpeedBaseKmh: 218,
+  bgmSrc: "./Nebura_Drifter.mp3",
+  beatRate: 2.05,
   themes: [
     { sky: 0x09112c, fog: 0x09112c, grid: 0x246f91, opacity: 0.16 },
     { sky: 0x0c1836, fog: 0x0c1d39, grid: 0x3595b8, opacity: 0.36 },
@@ -125,6 +129,8 @@ const STAGES: StageConfig[] = [{
   segments: 320,
   laps: 4,
   aiTopSpeedBaseKmh: 210,
+  bgmSrc: "./midnight_run_Remix.mp3",
+  beatRate: 2.18,
   themes: [
     { sky: 0x24112d, fog: 0x2d132d, grid: 0xc05b8f, opacity: 0.28 },
     { sky: 0x16102f, fog: 0x1c153b, grid: 0x745fc9, opacity: 0.35 },
@@ -576,6 +582,7 @@ bgmValueEl.value = bgmVolumeEl.value;
 sfxValueEl.value = sfxVolumeEl.value;
 bgm.volume = bgmVolume;
 finishBgm.volume = bgmVolume;
+bgm.src = stage.bgmSrc;
 totalLapsEl.textContent = String(TOTAL_LAPS);
 let engineOsc: OscillatorNode | null = null;
 let engineGain: GainNode | null = null;
@@ -995,6 +1002,9 @@ function switchStage(index: number) {
       rival.topSpeedMps = (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6;
     });
   }
+  bgm.pause();
+  bgm.src = stage.bgmSrc;
+  bgm.load();
   totalLapsEl.textContent = String(TOTAL_LAPS);
   resetRace();
 }
@@ -1223,7 +1233,7 @@ function burstFirework(center: THREE.Vector3) {
 }
 function getBgmPulse() {
   if (bgm.paused || !Number.isFinite(bgm.currentTime)) return 0.25;
-  const beat = (bgm.currentTime * 2.05) % 1;
+  const beat = (bgm.currentTime * stage.beatRate) % 1;
   return Math.pow(1 - beat, 4.2);
 }
 function updateFireworkColor(particle: FireworkParticle, pulse: number, offset: number) {
