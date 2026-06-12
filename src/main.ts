@@ -84,7 +84,7 @@ type StageConfig = {
   segments: number;
   laps: number;
   aiTopSpeedBaseKmh: number;
-  bgmSrc: string;
+  bgmIndex: number;
   beatRate: number;
   themes: LapTheme[];
 };
@@ -105,7 +105,7 @@ const STAGES: StageConfig[] = [{
   segments: 280,
   laps: 5,
   aiTopSpeedBaseKmh: 218,
-  bgmSrc: "./Nebura_Drifter.mp3",
+  bgmIndex: 0,
   beatRate: 2.05,
   themes: [
     { sky: 0x09112c, fog: 0x09112c, grid: 0x246f91, opacity: 0.16 },
@@ -129,7 +129,7 @@ const STAGES: StageConfig[] = [{
   segments: 320,
   laps: 4,
   aiTopSpeedBaseKmh: 210,
-  bgmSrc: "./midnight_run_Remix.mp3",
+  bgmIndex: 1,
   beatRate: 2.18,
   themes: [
     { sky: 0x24112d, fog: 0x2d132d, grid: 0xc05b8f, opacity: 0.28 },
@@ -554,7 +554,11 @@ const steeringEl = document.querySelector<HTMLElement>("#steering")!;
 const steeringKnobEl = document.querySelector<HTMLElement>("#steeringKnob")!;
 const gasEl = document.querySelector<HTMLButtonElement>("#gas")!;
 const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
-const bgm = document.querySelector<HTMLAudioElement>("#bgm")!;
+const bgmTracks = [
+  document.querySelector<HTMLAudioElement>("#bgm1")!,
+  document.querySelector<HTMLAudioElement>("#bgm2")!,
+];
+let bgm = bgmTracks[stage.bgmIndex];
 const finishBgm = document.querySelector<HTMLAudioElement>("#finishBgm")!;
 const audioToggleEl = document.querySelector<HTMLButtonElement>("#audioToggle")!;
 const pauseButtonEl = document.querySelector<HTMLButtonElement>("#pauseButton")!;
@@ -580,9 +584,8 @@ bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
 sfxValueEl.value = sfxVolumeEl.value;
-bgm.volume = bgmVolume;
+bgmTracks.forEach(track => { track.volume = bgmVolume; });
 finishBgm.volume = bgmVolume;
-bgm.src = stage.bgmSrc;
 totalLapsEl.textContent = String(TOTAL_LAPS);
 let engineOsc: OscillatorNode | null = null;
 let engineGain: GainNode | null = null;
@@ -870,7 +873,7 @@ for (const input of [bgmVolumeEl, sfxVolumeEl]) input.addEventListener("pointerd
 bgmVolumeEl.addEventListener("input", () => {
   bgmVolume = Number(bgmVolumeEl.value) / 100;
   bgmValueEl.value = bgmVolumeEl.value;
-  bgm.volume = bgmVolume;
+  bgmTracks.forEach(track => { track.volume = bgmVolume; });
   finishBgm.volume = bgmVolume;
   localStorage.setItem("nebura-bgm-volume", bgmVolumeEl.value);
 });
@@ -955,8 +958,10 @@ function resetRace() {
     particle.life = 0;
     particle.sprite.visible = false;
   }
-  bgm.pause();
-  bgm.currentTime = 0;
+  bgmTracks.forEach(track => {
+    track.pause();
+    track.currentTime = 0;
+  });
   finishBgm.pause();
   finishBgm.currentTime = 0;
   skipReplayEl.classList.remove("show");
@@ -1002,8 +1007,12 @@ function switchStage(index: number) {
       rival.topSpeedMps = (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6;
     });
   }
-  bgm.pause();
-  bgm.src = stage.bgmSrc;
+  bgmTracks.forEach(track => {
+    track.pause();
+    track.currentTime = 0;
+  });
+  bgm = bgmTracks[stage.bgmIndex];
+  bgm.volume = bgmVolume;
   bgm.load();
   totalLapsEl.textContent = String(TOTAL_LAPS);
   resetRace();
