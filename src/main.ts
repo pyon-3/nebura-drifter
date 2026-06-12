@@ -21,6 +21,22 @@ scene.add(hemisphere);
 const moon = new THREE.DirectionalLight(0xe1fbff, 2.18);
 moon.position.set(-12, 18, -8);
 scene.add(moon);
+const duskSky = new THREE.Mesh(
+  new THREE.SphereGeometry(1250, 32, 16),
+  new THREE.ShaderMaterial({
+    uniforms: {
+      zenith: { value: new THREE.Color(0x10152d) },
+      horizon: { value: new THREE.Color(0xc45f43) },
+      low: { value: new THREE.Color(0x35162a) },
+    },
+    vertexShader: `varying float vHeight;void main(){vHeight=normalize(position).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+    fragmentShader: `uniform vec3 zenith;uniform vec3 horizon;uniform vec3 low;varying float vHeight;void main(){float upper=smoothstep(-.05,.72,vHeight);float lower=smoothstep(-.72,-.02,vHeight);vec3 color=mix(low,horizon,lower);color=mix(color,zenith,upper);gl_FragColor=vec4(color,1.0);}`,
+    side: THREE.BackSide,
+    depthWrite: false,
+  }),
+);
+duskSky.visible = false;
+scene.add(duskSky);
 const wireMaterials: THREE.LineBasicMaterial[] = [];
 const gateMaterials: THREE.LineBasicMaterial[] = [];
 let stageGroup = new THREE.Group();
@@ -961,6 +977,7 @@ const goCourseSelectEl = document.querySelector<HTMLButtonElement>("#goCourseSel
 const enterGridEl = document.querySelector<HTMLButtonElement>("#enterGrid")!;
 const backToTitleEl = document.querySelector<HTMLButtonElement>("#backToTitle")!;
 const stageCards = [...document.querySelectorAll<HTMLButtonElement>(".stage-card")];
+const timeCards = [...document.querySelectorAll<HTMLButtonElement>(".time-card")];
 let touchGas = false;
 let touchBrake = false;
 let audioContext: AudioContext | null = null;
@@ -970,6 +987,7 @@ let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
 let finishBgmWarmed = false;
 let radioCallTimer = 0;
 let menuScreen: "title" | "course" | "none" = "title";
+let timeMode: "night" | "dusk" = "night";
 bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
@@ -1122,6 +1140,15 @@ function finishAnnouncement(position: number) {
 
 function applyLapTheme(lap: number) {
   const theme = stage.themes[Math.min(lap - 1, stage.themes.length - 1)];
+  if (timeMode === "dusk") {
+    scene.background = new THREE.Color(0x25152b);
+    scene.fog = new THREE.FogExp2(0x552738, 0.00135);
+    gridMaterials.forEach(material => {
+      material.color.setHex(0xd88755);
+      material.opacity = 0.28 + Math.min(lap, 3) * 0.025;
+    });
+    return;
+  }
   scene.background = new THREE.Color(theme.sky);
   scene.fog = new THREE.FogExp2(theme.fog, 0.0016);
   gridMaterials.forEach(material => {
@@ -1132,21 +1159,26 @@ function applyLapTheme(lap: number) {
 applyLapTheme(1);
 
 function resetVisualTheme() {
-  renderer.toneMappingExposure = 2.38;
-  hemisphere.intensity = 1.62;
-  hemisphere.color.setHex(0xb7caff);
-  moon.intensity = 2.18;
-  moon.color.setHex(0xe1fbff);
+  const dusk = timeMode === "dusk";
+  document.body.classList.toggle("dusk", dusk);
+  duskSky.visible = dusk;
+  renderer.toneMappingExposure = dusk ? 2.05 : 2.38;
+  hemisphere.intensity = dusk ? 1.35 : 1.62;
+  hemisphere.color.setHex(dusk ? 0x8f789e : 0xb7caff);
+  hemisphere.groundColor.setHex(dusk ? 0x32152d : 0x1a1e3d);
+  moon.intensity = dusk ? 3.1 : 2.18;
+  moon.color.setHex(dusk ? 0xff9b5e : 0xe1fbff);
+  moon.position.set(dusk ? 180 : -12, dusk ? 22 : 18, dusk ? -60 : -8);
   wireMaterials.forEach((material, i) => {
-    material.color.setHex(i === 0 ? 0x70f2ff : 0xc997ff);
-    material.opacity = i === 0 ? 0.46 : 0.38;
+    material.color.setHex(dusk ? (i === 0 ? 0xffaa66 : 0xc26d65) : (i === 0 ? 0x70f2ff : 0xc997ff));
+    material.opacity = dusk ? 0.34 : i === 0 ? 0.46 : 0.38;
   });
   gateMaterials.forEach((material, i) => {
-    material.color.setHex(i % 3 === 0 ? 0xff6a95 : 0x75f3ff);
-    material.opacity = 0.55;
+    material.color.setHex(dusk ? (i % 3 === 0 ? 0xff6a78 : 0xffb16b) : (i % 3 === 0 ? 0xff6a95 : 0x75f3ff));
+    material.opacity = dusk ? 0.45 : 0.55;
   });
-  starMaterial.color.setHex(0x9ac7ff);
-  starMaterial.opacity = 0.55;
+  starMaterial.color.setHex(dusk ? 0xffd3a1 : 0x9ac7ff);
+  starMaterial.opacity = dusk ? 0.2 : 0.55;
   starMaterial.size = 1.15;
   finalRingMaterials.forEach(material => { material.opacity = 0; });
   announcementEl.style.filter = "";
@@ -1163,13 +1195,32 @@ function updateFinalLapVisuals(now: number) {
     const remaining = TOTAL_LAPS - currentLap;
     if (remaining <= 2) {
       const anticipation = Math.pow(Math.sin(now * (remaining === 1 ? 2.8 : 1.8)) * 0.5 + 0.5, 4);
-      const baseOpacity = stage.themes[Math.min(currentLap - 1, stage.themes.length - 1)].opacity;
+      const baseOpacity = timeMode === "dusk" ? 0.3 : stage.themes[Math.min(currentLap - 1, stage.themes.length - 1)].opacity;
       gridMaterials.forEach(material => { material.opacity = baseOpacity + anticipation * (remaining === 1 ? 0.075 : 0.035); });
       gateMaterials.forEach(material => { material.opacity = 0.55 + anticipation * 0.12; });
     }
     return;
   }
   const pulse = getBgmPulse();
+  if (timeMode === "dusk") {
+    scene.background = new THREE.Color(0x25152b);
+    if (scene.fog instanceof THREE.FogExp2) {
+      scene.fog.color.setHex(0x552738);
+      scene.fog.density = 0.0013 + pulse * 0.00016;
+    }
+    renderer.toneMappingExposure = 2.05 + pulse * 0.42;
+    hemisphere.intensity = 1.35 + pulse * 0.55;
+    moon.intensity = 3.1 + pulse * 2.1;
+    gridMaterials.forEach(material => {
+      material.color.setHex(pulse > 0.55 ? 0xffa15e : 0xd88755);
+      material.opacity = 0.34 + pulse * 0.24;
+    });
+    gateMaterials.forEach((material, i) => {
+      material.color.setHex(i % 3 === 0 ? 0xff566e : 0xffb06a);
+      material.opacity = 0.5 + pulse * 0.28;
+    });
+    return;
+  }
   const wave = Math.sin(bgm.currentTime * 1.15) * 0.5 + 0.5;
   const hue = (bgm.currentTime * 0.025 + wave * 0.08) % 1;
   finalSkyColor.setHSL(hue, 0.7, 0.075 + pulse * 0.075);
@@ -1345,6 +1396,15 @@ stageCards.forEach((card, index) => {
     e.preventDefault();
     selectedStageIndex = index;
     stageCards.forEach((item, itemIndex) => item.classList.toggle("selected", itemIndex === selectedStageIndex));
+  });
+});
+timeCards.forEach(card => {
+  card.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    timeMode = card.dataset.time === "dusk" ? "dusk" : "night";
+    timeCards.forEach(item => item.classList.toggle("selected", item === card));
+    resetVisualTheme();
   });
 });
 enterGridEl.addEventListener("pointerdown", e => {

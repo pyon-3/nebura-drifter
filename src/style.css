@@ -37,3 +37,20 @@ button{border:1px solid #75edff88;background:#07101bbb;color:#d8fbff;padding:13p
 #courseSelect small{margin-top:18px;font-size:8px;letter-spacing:.2em;opacity:.42}
 #goCourseSelect,#backToTitle{margin-top:8px}
 @media(max-height:500px){#title p{margin:15px 0 22px}h1{font-size:52px}#stageSelect{margin:-12px 0 10px}.stage-card{padding:9px 5px}.stage-card b{font-size:8px}#steering{width:110px;height:66px}.speed{bottom:10px}}
+
+/* Editorial dusk UI: sans-serif typography, amber rules, mono numerals. */
+:root{--ink:#f3eee6;--amber:#ffb35c;--red:#ff5267;--line:#ffb35c66;--panel:#090b15cc;--mono:"SFMono-Regular",Consolas,monospace;font-family:"Avenir Next Condensed","Trebuchet MS","Segoe UI",sans-serif;color:var(--ink)}
+#hud{font-style:italic;text-shadow:0 0 12px #ffb35c35}
+.brand{letter-spacing:.18em;border-top:1px solid var(--line);padding-top:6px}.brand b,.lap span,.score small,.speed em{color:var(--amber)}
+.score span,.position span,.lap span,.speed span{font-family:var(--mono);font-style:italic}
+.lap{letter-spacing:.12em;border-bottom:1px solid var(--line);padding:0 20px 5px}
+.speed em{font-style:italic;letter-spacing:.1em;opacity:.72}.speed i{height:1px;background:#ffb35c42}.speed i b{background:linear-gradient(90deg,var(--amber) 60%,var(--red));box-shadow:0 0 10px #ffb35c}
+#announcement{transform:translate(-70%,-50%);font-size:clamp(36px,11vw,86px);font-weight:700;font-style:italic;letter-spacing:0;color:#fffaf2;text-shadow:0 0 18px #ffb35c88;transition:opacity .25s,transform .38s,letter-spacing .5s;border-bottom:1px solid var(--line)}
+#announcement.show{transform:translate(-50%,-50%);letter-spacing:.24em}
+#title,#courseSelect{background:linear-gradient(120deg,#02030a33,#090713b5 72%)}
+h1{text-align:left;font-weight:300;font-style:italic;letter-spacing:-.1em;color:#f4efe7;text-shadow:0 0 25px #ffb35c45;border-left:1px solid var(--amber);padding-left:18px}
+h1 b{font-weight:800;color:var(--amber);text-shadow:0 0 28px #ff8f3866}
+#timeSelect{display:flex;gap:7px;margin:4px 0 25px;pointer-events:auto}.time-card{min-width:90px;padding:8px 16px;opacity:.45}.time-card.selected{opacity:1;color:var(--amber);border-color:var(--amber)}
+#stageSelect{margin:-12px 0 20px}.stage-card{padding:14px 10px;text-align:left;border-width:1px 0 0}.stage-card.selected{border-color:var(--amber);background:linear-gradient(120deg,#24160dcc,transparent);box-shadow:none}.stage-card b{font-size:10px;font-style:italic}
+button{border-color:var(--line);background:var(--panel);color:var(--ink);font-family:"Avenir Next Condensed","Trebuchet MS","Segoe UI",sans-serif;font-style:italic;letter-spacing:.12em;box-shadow:none}
+.dusk{--amber:#ffb06a;--line:#ffb06a70;--panel:#24130dcc}.dusk #title,.dusk #courseSelect{background:linear-gradient(120deg,#24152a33,#170b12c9 72%)}.dusk #minimapTrack{stroke:#ffb06a88}.dusk #radioCall{border-left-color:var(--amber)}
