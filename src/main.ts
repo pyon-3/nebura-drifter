@@ -569,6 +569,8 @@ const positionEl = document.querySelector("#position")!;
 const lapEl = document.querySelector("#lap")!;
 const totalLapsEl = document.querySelector("#totalLaps")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
+const radioCallEl = document.querySelector<HTMLElement>("#radioCall")!;
+const radioCallTextEl = radioCallEl.querySelector<HTMLElement>("b")!;
 const announcementEl = document.querySelector<HTMLElement>("#announcement")!;
 const skipReplayEl = document.querySelector<HTMLButtonElement>("#skipReplay")!;
 const restartRaceEl = document.querySelector<HTMLButtonElement>("#restartRace")!;
@@ -603,8 +605,7 @@ let sfxMaster: GainNode | null = null;
 let bgmVolume = Number(localStorage.getItem("nebura-bgm-volume") ?? 68) / 100;
 let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
 let finishBgmWarmed = false;
-let announcerVoice: SpeechSynthesisVoice | null = null;
-let announcerTimer = 0;
+let radioCallTimer = 0;
 bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
@@ -619,55 +620,77 @@ let windGain: GainNode | null = null;
 let tireSource: AudioBufferSourceNode | null = null;
 let tireGain: GainNode | null = null;
 
-function selectAnnouncerVoice() {
-  if (!("speechSynthesis" in window)) return;
-  const voices = speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith("en"));
-  const preferred = ["Daniel", "Samantha", "Karen", "Moira", "Google UK English Male", "Google US English"];
-  announcerVoice = preferred.map(name => voices.find(voice => voice.name.includes(name))).find(Boolean) ?? voices[0] ?? null;
-}
-selectAnnouncerVoice();
-if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", selectAnnouncerVoice);
-
 function playerPosition() {
   return 1 + rivals.filter(rival => rival.progress > playerProgress).length;
 }
 
-function restoreMusicVolume() {
-  bgm.volume = bgmVolume;
-  finishBgm.volume = bgmVolume;
+function playVocoderCall(text: string) {
+  if (!audioContext || !sfxMaster || sfxVolume < 0.02) return;
+  const start = audioContext.currentTime + 0.02;
+  const output = audioContext.createGain();
+  const highpass = audioContext.createBiquadFilter();
+  const delay = audioContext.createDelay(0.25);
+  const echo = audioContext.createGain();
+  highpass.type = "highpass";
+  highpass.frequency.value = 180;
+  output.gain.value = 0.24;
+  delay.delayTime.value = 0.105;
+  echo.gain.value = 0.16;
+  output.connect(highpass).connect(sfxMaster);
+  highpass.connect(delay).connect(echo).connect(sfxMaster);
+
+  const seed = [...text].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 7);
+  const formants = [430, 1080, 2280];
+  const syllables = Math.min(7, Math.max(4, Math.ceil(text.length / 7)));
+  for (let i = 0; i < syllables; i++) {
+    const at = start + i * 0.135;
+    const length = i === syllables - 1 ? 0.24 : 0.105;
+    const carrier = audioContext.createOscillator();
+    const pulse = audioContext.createGain();
+    carrier.type = i % 3 === 0 ? "square" : "sawtooth";
+    carrier.frequency.setValueAtTime(82 + ((seed >> (i % 16)) & 7) * 7, at);
+    carrier.frequency.exponentialRampToValueAtTime(68 + ((seed >> ((i + 5) % 16)) & 7) * 6, at + length);
+    pulse.gain.setValueAtTime(0.001, at);
+    pulse.gain.exponentialRampToValueAtTime(0.19, at + 0.018);
+    pulse.gain.exponentialRampToValueAtTime(0.001, at + length);
+    carrier.connect(pulse);
+    formants.forEach((frequency, band) => {
+      const filter = audioContext!.createBiquadFilter();
+      const bandGain = audioContext!.createGain();
+      filter.type = "bandpass";
+      filter.frequency.value = frequency * (0.88 + (((seed >> ((i + band) % 20)) & 3) * 0.08));
+      filter.Q.value = 5.5 + band * 1.8;
+      bandGain.gain.value = [0.65, 0.38, 0.2][band];
+      pulse.connect(filter).connect(bandGain).connect(output);
+    });
+    carrier.start(at);
+    carrier.stop(at + length + 0.03);
+  }
 }
 
-function announce(text: string, delayMs = 0) {
-  if (!("speechSynthesis" in window) || sfxVolume < 0.02) return;
-  clearTimeout(announcerTimer);
-  speechSynthesis.cancel();
-  announcerTimer = window.setTimeout(() => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = announcerVoice?.lang ?? "en-US";
-    utterance.voice = announcerVoice;
-    utterance.rate = 0.92;
-    utterance.pitch = 0.78;
-    utterance.volume = Math.min(1, 0.48 + sfxVolume * 0.52);
-    bgm.volume = bgmVolume * 0.48;
-    finishBgm.volume = bgmVolume * 0.55;
-    utterance.onend = restoreMusicVolume;
-    utterance.onerror = restoreMusicVolume;
-    speechSynthesis.speak(utterance);
+function showRadioCall(text: string, delayMs = 0) {
+  clearTimeout(radioCallTimer);
+  radioCallEl.classList.remove("show");
+  radioCallTimer = window.setTimeout(() => {
+    radioCallTextEl.textContent = text;
+    radioCallEl.classList.add("show");
+    playVocoderCall(text);
+    radioCallTimer = window.setTimeout(() => radioCallEl.classList.remove("show"), 2600);
   }, delayMs);
 }
 
 function lapAnnouncement(lap: number, position: number) {
-  const lapName = ["zero", "one", "two", "three", "four", "five"][lap] ?? String(lap);
-  const prefix = lap === TOTAL_LAPS ? "Final lap." : `Lap ${lapName}.`;
-  if (position === 1) return `${prefix} You own the midnight. Keep it clean.`;
-  if (position <= 5) return `${prefix} Stay focused. Hold your line.`;
-  return `${prefix} Push harder. Chase those red lights.`;
+  if (lap === 1) return "MIDNIGHT SIGNAL // LIVE";
+  const prefix = lap === TOTAL_LAPS ? "FINAL TRANSMISSION" : `LAP ${String(lap).padStart(2, "0")}`;
+  if (position === 1) return `${prefix} // P1`;
+  if (position <= 5) return `${prefix} // HOLD FREQUENCY`;
+  return `${prefix} // CLOSE THE GAP`;
 }
 
 function finishAnnouncement(position: number) {
-  if (position === 1) return "First place. Midnight belongs to you.";
-  if (position <= 5) return `Race complete. Position ${position}. Smooth run.`;
-  return `Race complete. Position ${position}. The night is not over.`;
+  if (position === 1) return "P1 // AFTERGLOW";
+  if (position <= 5) return `P${position} // SIGNAL COMPLETE`;
+  return `P${position} // LOST FREQUENCY`;
 }
 
 function applyLapTheme(lap: number) {
@@ -993,8 +1016,8 @@ function setPaused(value: boolean) {
 }
 
 function resetRace() {
-  clearTimeout(announcerTimer);
-  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  clearTimeout(radioCallTimer);
+  radioCallEl.classList.remove("show");
   paused = false;
   pauseScreenEl.classList.remove("show");
   settingsScreenEl.classList.remove("show");
@@ -1111,7 +1134,7 @@ function startFinish(now: number) {
   finishBgm.muted = false;
   finishBgm.volume = bgmVolume;
   playFinishBgm();
-  announce(finishAnnouncement(playerPosition()), 550);
+  showRadioCall(finishAnnouncement(playerPosition()), 550);
   announcementEl.textContent = "FINISH";
   announcementEl.className = "show final";
   skipReplayEl.classList.toggle("show", replaying);
@@ -1382,7 +1405,7 @@ function animate() {
         running = true;
         bgm.volume = bgmVolume;
         void bgm.play().catch(() => {});
-        announce(lapAnnouncement(1, playerPosition()), 520);
+        showRadioCall(lapAnnouncement(1, playerPosition()), 520);
       }
     }
     announcementEl.textContent = value;
@@ -1513,7 +1536,7 @@ function animate() {
   if (lap !== currentLap) {
     currentLap = lap;
     applyLapTheme(lap);
-    announce(lapAnnouncement(lap, position), lap === TOTAL_LAPS ? 300 : 120);
+    showRadioCall(lapAnnouncement(lap, position), lap === TOTAL_LAPS ? 300 : 120);
     if (lap === TOTAL_LAPS) {
       finalLapUntil = now + 3;
       finishBgm.load();
