@@ -360,7 +360,7 @@ let smokeCursor = 0;
 let lastSmokeEmit = 0;
 
 type FireworkParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number; rocket: boolean };
-const fireworkParticles: FireworkParticle[] = Array.from({ length: 420 }, (_, i) => {
+const fireworkParticles: FireworkParticle[] = Array.from({ length: 700 }, (_, i) => {
   const material = new THREE.SpriteMaterial({
     map: smokeTexture,
     color: [0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4],
@@ -376,6 +376,7 @@ const fireworkParticles: FireworkParticle[] = Array.from({ length: 420 }, (_, i)
 });
 let fireworkCursor = 0;
 let lastFirework = 0;
+let finalLapFireworkCount = 0;
 let lastTouchEnd = 0;
 
 function makeCarSection(
@@ -1286,6 +1287,7 @@ function resetRace() {
   lastCountdownValue = "";
   currentLap = 1;
   finalLapUntil = 0;
+  finalLapFireworkCount = 0;
   replayStart = 0;
   replayCursor = 0;
   playerProgress = 0;
@@ -1577,54 +1579,46 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
   }
 }
 function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
+  if (finalLapFireworkCount >= 20) return;
   const beatPulse = getBgmPulse();
-  if (now - lastFirework < THREE.MathUtils.lerp(0.62, 0.22, beatPulse)) return;
+  if (now - lastFirework < THREE.MathUtils.lerp(0.5, 0.34, beatPulse)) return;
   lastFirework = now;
-  const launchCount = beatPulse > 0.68 ? 3 : 2;
-  for (let i = 0; i < launchCount; i++) {
-    const side = i % 2 === 0 ? -1 : 1;
-    const launch = frame.point.clone()
-      .addScaledVector(frame.tangent, 40 + Math.random() * 38 + i * 6)
-      .addScaledVector(frame.right, side * (18 + Math.random() * 30))
-      .addScaledVector(frame.normal, 0.4);
-    const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
-    particle.life = particle.maxLife = 0.62 + Math.random() * 0.32;
-    particle.rocket = true;
-    particle.sprite.visible = true;
-    particle.sprite.position.copy(launch);
-    particle.sprite.scale.setScalar(0.42 + beatPulse * 0.25);
-    particle.velocity.set(side * (0.8 + Math.random() * 1.5), 24 + Math.random() * 10, (Math.random() - 0.5) * 2.4);
-    updateFireworkColor(particle, beatPulse, fireworkCursor + i * 7);
-  }
+  const shot = finalLapFireworkCount++;
+  const sidePattern = [-0.72, 0.68, -0.28, 0.32, -0.94, 0.92, 0];
+  const center = frame.point.clone()
+    .addScaledVector(frame.tangent, 150 + (shot % 4) * 16 + Math.random() * 14)
+    .addScaledVector(frame.right, sidePattern[shot % sidePattern.length] * (54 + Math.random() * 12))
+    .addScaledVector(frame.normal, 34 + (shot % 3) * 11 + Math.random() * 8);
+  burstFirework(center, 1.35 + beatPulse * 0.3);
 }
-function burstFirework(center: THREE.Vector3) {
+function burstFirework(center: THREE.Vector3, size = 1) {
   const beatPulse = getBgmPulse();
-  const count = 62 + Math.round(beatPulse * 50);
+  const count = 54 + Math.round(beatPulse * 38);
   const hueOffset = fireworkCursor;
   for (let i = 0; i < count; i++) {
     const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
     const y = 1 - (i / Math.max(1, count - 1)) * 2;
     const radius = Math.sqrt(Math.max(0, 1 - y * y));
     const angle = i * Math.PI * (3 - Math.sqrt(5)) + Math.random() * 0.12;
-    const speed = 8 + Math.random() * 6 + beatPulse * 5;
-    particle.life = particle.maxLife = 1.35 + Math.random() * 0.8;
+    const speed = (8 + Math.random() * 6 + beatPulse * 5) * size;
+    particle.life = particle.maxLife = 1.7 + Math.random() * 0.9;
     particle.rocket = false;
     particle.sprite.visible = true;
     particle.sprite.position.copy(center);
-    particle.sprite.scale.setScalar(0.3 + Math.random() * 0.28 + beatPulse * 0.16);
+    particle.sprite.scale.setScalar((0.34 + Math.random() * 0.3 + beatPulse * 0.18) * size);
     particle.velocity.set(Math.cos(angle) * radius * speed, y * speed, Math.sin(angle) * radius * speed);
     updateFireworkColor(particle, beatPulse, hueOffset + Math.floor(i / 12));
   }
-  const ringCount = 32;
+  const ringCount = 28;
   for (let i = 0; i < ringCount; i++) {
     const particle = fireworkParticles[fireworkCursor++ % fireworkParticles.length];
     const angle = (i / ringCount) * Math.PI * 2;
-    const speed = 15 + beatPulse * 6;
-    particle.life = particle.maxLife = 1.05 + Math.random() * 0.35;
+    const speed = (15 + beatPulse * 6) * size;
+    particle.life = particle.maxLife = 1.4 + Math.random() * 0.45;
     particle.rocket = false;
     particle.sprite.visible = true;
     particle.sprite.position.copy(center);
-    particle.sprite.scale.setScalar(0.46 + beatPulse * 0.18);
+    particle.sprite.scale.setScalar((0.48 + beatPulse * 0.2) * size);
     particle.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed, (Math.random() - 0.5) * 1.2);
     updateFireworkColor(particle, 1, hueOffset + 18);
   }
