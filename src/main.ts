@@ -93,8 +93,15 @@ function addWireEnvironment() {
 function addAdvancedEnvironment() {
   if (stage.id !== "blue-neon-shift") return;
 
-  const buildingColors = [0x10182a, 0x17142b, 0x101f2d, 0x24152c];
-  const windowColors = [0x46eaff, 0xff4e9b, 0x8568ff, 0xffd95c];
+  const addWireBox = (group: THREE.Group, width: number, height: number, depth: number, color: number, opacity = 0.78) => {
+    const wire = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(width, height, depth)),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending }),
+    );
+    group.add(wire);
+    return wire;
+  };
+
   const citySections: [number, number][] = [[0.015, 0.19], [0.49, 0.7], [0.78, 0.91]];
   let buildingIndex = 0;
   for (const [start, end] of citySections) {
@@ -108,45 +115,36 @@ function addAdvancedEnvironment() {
         const depth = 5 + (seed * 13 % 11);
         const height = 12 + (seed * 19 % 38);
         const offset = TRACK_WIDTH * 0.5 + 7 + (seed * 5 % 12);
-        const building = new THREE.Mesh(
-          new THREE.BoxGeometry(width, height, depth),
-          new THREE.MeshStandardMaterial({
-            color: buildingColors[seed % buildingColors.length],
-            roughness: 0.76,
-            metalness: 0.24,
-            flatShading: true,
-          }),
-        );
+        const building = new THREE.Group();
         building.position.copy(f.point).addScaledVector(f.right, side * offset);
         building.position.y += height * 0.5 - 0.4;
         building.rotation.y = Math.atan2(f.tangent.x, f.tangent.z);
-        stageGroup.add(building);
-
-        for (let floor = 0; floor < Math.min(7, Math.floor(height / 5)); floor++) {
-          const windows = new THREE.Mesh(
-            new THREE.BoxGeometry(width * 0.68, 0.18, depth + 0.025),
-            new THREE.MeshBasicMaterial({
-              color: windowColors[(seed + floor) % windowColors.length],
+        addWireBox(building, width, height, depth, [0x53efff, 0xff4f9b, 0x8d74ff, 0xffd65a][seed % 4], 0.82);
+        const latticeLevels = Math.max(3, Math.floor(height / 6));
+        for (let level = 0; level < latticeLevels; level++) {
+          const y = -height * 0.48 + (level + 1) * (height / (latticeLevels + 1));
+          addWireBox(building, width * 0.82, 0.12, depth * 0.82, [0x37e8ff, 0xff3f93, 0xcab5ff, 0xf6d36a][(seed + level) % 4], 0.45);
+        }
+        for (let rib = 0; rib < 3; rib++) {
+          const brace = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.BoxGeometry(width * 0.06, height * 0.94, depth * 0.06)),
+            new THREE.LineBasicMaterial({
+              color: seed % 2 ? 0xff5aa0 : 0x54efff,
               transparent: true,
-              opacity: 0.48,
+              opacity: 0.52,
+              blending: THREE.AdditiveBlending,
             }),
           );
-          windows.position.copy(building.position);
-          windows.position.y = f.point.y + 2.4 + floor * 4.3;
-          windows.rotation.y = building.rotation.y;
-          stageGroup.add(windows);
+          brace.position.set((rib - 1) * width * 0.24, 0, (seed % 3 - 1) * depth * 0.16);
+          building.add(brace);
         }
+        stageGroup.add(building);
       }
       buildingIndex++;
     }
   }
 
-  const tunnelWallMat = new THREE.MeshStandardMaterial({ color: 0x0b111c, roughness: 0.82, metalness: 0.3, flatShading: true });
-  const tunnelRoofMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7, metalness: 0.42, flatShading: true });
-  const tunnelLightMats = [
-    new THREE.MeshBasicMaterial({ color: 0x52efff }),
-    new THREE.MeshBasicMaterial({ color: 0xff3d91 }),
-  ];
+  const tunnelColors = [0x52efff, 0xff3d91, 0x8b7aff, 0xf8d65e];
   const tunnelStart = 0.285;
   const tunnelEnd = 0.405;
   const tunnelSegments = 34;
@@ -154,43 +152,73 @@ function addAdvancedEnvironment() {
     const u = THREE.MathUtils.lerp(tunnelStart, tunnelEnd, i / tunnelSegments);
     const f = trackFrame(u);
     const basis = new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent);
+    const tunnelFrame = new THREE.Group();
+    tunnelFrame.position.copy(f.point).addScaledVector(f.normal, 3.25);
+    tunnelFrame.quaternion.setFromRotationMatrix(basis);
     for (const side of [-1, 1]) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.55, 6.8, 11.5), tunnelWallMat);
-      wall.position.copy(f.point).addScaledVector(f.right, side * 6.65).addScaledVector(f.normal, 3.25);
-      wall.quaternion.setFromRotationMatrix(basis);
-      stageGroup.add(wall);
-    }
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(13.8, 0.5, 11.5), tunnelRoofMat);
-    roof.position.copy(f.point).addScaledVector(f.normal, 6.55);
-    roof.quaternion.setFromRotationMatrix(basis);
-    stageGroup.add(roof);
-
-    if (i % 2 === 0) {
-      const rib = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(13.1, 6.1, 0.14)),
+      const wallColumn = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(0.28, 6.7, 11.5)),
         new THREE.LineBasicMaterial({
-          color: i % 4 === 0 ? 0x53efff : 0xff4f9e,
+          color: tunnelColors[(i + (side > 0 ? 2 : 0)) % tunnelColors.length],
           transparent: true,
-          opacity: 0.72,
+          opacity: 0.88,
+          blending: THREE.AdditiveBlending,
         }),
       );
-      rib.position.copy(f.point).addScaledVector(f.normal, 3.25);
-      rib.quaternion.setFromRotationMatrix(basis);
-      stageGroup.add(rib);
+      wallColumn.position.set(side * 6.7, -0.1, 0);
+      tunnelFrame.add(wallColumn);
+    }
+    addWireBox(tunnelFrame, 13.8, 0.2, 11.5, tunnelColors[i % tunnelColors.length], 0.82);
+    addWireBox(tunnelFrame, 13.8, 6.8, 0.18, tunnelColors[(i + 1) % tunnelColors.length], 0.76);
+    for (let brace = 0; brace < 4; brace++) {
+      const z = -4.2 + brace * 2.8;
+      const cross = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(13.0, 0.16, 0.18)),
+        new THREE.LineBasicMaterial({
+          color: brace % 2 === 0 ? 0x53efff : 0xff4f9e,
+          transparent: true,
+          opacity: 0.86,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      cross.position.set(0, -3.05 + (brace % 2) * 0.2, z);
+      tunnelFrame.add(cross);
+    }
+    for (let brace = 0; brace < 5; brace++) {
+      const x = -4.8 + brace * 2.4;
+      const ridge = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 6.15, 0.16)),
+        new THREE.LineBasicMaterial({
+          color: brace % 2 === 0 ? 0x8b7aff : 0xf8d65e,
+          transparent: true,
+          opacity: 0.8,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      ridge.position.set(x, 0, 0);
+      tunnelFrame.add(ridge);
     }
     for (const side of [-1, 1]) {
-      const light = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 9.5), tunnelLightMats[(i + (side > 0 ? 1 : 0)) % 2]);
-      light.position.copy(f.point).addScaledVector(f.right, side * 4.6).addScaledVector(f.normal, 6.23);
-      light.quaternion.setFromRotationMatrix(basis);
-      stageGroup.add(light);
+      const light = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(0.2, 0.18, 9.5)),
+        new THREE.LineBasicMaterial({
+          color: side > 0 ? 0x52efff : 0xff3d91,
+          transparent: true,
+          opacity: 0.92,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      light.position.set(side * 4.7, 2.7, 0);
+      tunnelFrame.add(light);
     }
+    stageGroup.add(tunnelFrame);
   }
 
   for (const u of [tunnelStart, tunnelEnd]) {
     const f = trackFrame(u);
     const portal = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(14.4, 7.4, 0.7)),
-      new THREE.LineBasicMaterial({ color: 0xff4b9b, transparent: true, opacity: 0.9 }),
+      new THREE.LineBasicMaterial({ color: 0x7ef6ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending }),
     );
     portal.position.copy(f.point).addScaledVector(f.normal, 3.45);
     portal.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
