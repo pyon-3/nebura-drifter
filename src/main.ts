@@ -3,8 +3,18 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import "./style.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isMobileSafari = /iPhone|iPad|iPod/i.test(navigator.userAgent) && /WebKit/i.test(navigator.userAgent);
+const safeBlending = isMobile ? THREE.NormalBlending : THREE.AdditiveBlending;
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: !isMobile,
+  alpha: false,
+  premultipliedAlpha: false,
+  powerPreference: "high-performance",
+  precision: isMobileSafari ? "mediump" : "highp",
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.25 : 1.7));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -16,7 +26,7 @@ scene.fog = new THREE.FogExp2(0x05091a, 0.0016);
 const camera = new THREE.PerspectiveCamera(69, innerWidth / innerHeight, 0.1, 1600);
 const clock = new THREE.Clock();
 const up = new THREE.Vector3(0, 1, 0);
-const isMobileDevice = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const isMobileDevice = matchMedia("(pointer: coarse)").matches || isMobile;
 let reducedEffects = false;
 let fpsSampleStarted = performance.now();
 let fpsSampleFrames = 0;
@@ -478,7 +488,12 @@ const smokeTexture = (() => {
   gradient.addColorStop(1, "rgba(40,60,90,0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(textureCanvas);
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
 })();
 const tailSpillTexture = (() => {
   const textureCanvas = document.createElement("canvas");
@@ -492,10 +507,15 @@ const tailSpillTexture = (() => {
   gradient.addColorStop(1, "rgba(90,0,20,0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(textureCanvas);
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
 })();
 const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
-  const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: safeBlending, alphaTest: 0.02 });
   const sprite = new THREE.Sprite(material);
   sprite.visible = false;
   scene.add(sprite);
@@ -517,10 +537,10 @@ fireworkGeometry.setAttribute("aSize", new THREE.BufferAttribute(fireworkSizes, 
 fireworkGeometry.setAttribute("aAlpha", new THREE.BufferAttribute(fireworkAlphas, 1));
 const fireworkMaterial = new THREE.ShaderMaterial({
   vertexShader: `attribute float aSize;attribute float aAlpha;attribute vec3 color;varying float vAlpha;varying vec3 vColor;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vAlpha=aAlpha;vColor=color;gl_PointSize=aSize*(260.0/max(1.0,-mv.z));gl_Position=projectionMatrix*mv;}`,
-  fragmentShader: `varying float vAlpha;varying vec3 vColor;void main(){float d=length(gl_PointCoord-vec2(.5));float glow=smoothstep(.5,0.0,d);gl_FragColor=vec4(vColor,glow*glow*vAlpha);}`,
+  fragmentShader: `varying float vAlpha;varying vec3 vColor;void main(){float d=length(gl_PointCoord-vec2(.5));float glow=smoothstep(.5,0.0,d);float alpha=glow*glow*vAlpha;if(alpha<.01)discard;gl_FragColor=vec4(vColor,alpha);}`,
   transparent: true,
   depthWrite: false,
-  blending: THREE.AdditiveBlending,
+  blending: safeBlending,
   vertexColors: true,
 });
 const fireworkPoints = new THREE.Points(fireworkGeometry, fireworkMaterial);
@@ -748,26 +768,30 @@ function makeCar(bodyColor: number, rival = false) {
     const haloMaterial = new THREE.SpriteMaterial({
       map: smokeTexture,
       color: 0xff2349,
-      blending: THREE.AdditiveBlending,
+      blending: safeBlending,
       transparent: true,
       opacity: rival ? 0.18 : 0.15,
       depthWrite: false,
+      alphaTest: 0.02,
     });
     const halo = new THREE.Sprite(haloMaterial);
     halo.position.set(x, 0.57, -1.855);
     halo.scale.setScalar(0.72);
+    halo.visible = !isMobile;
     car.add(halo);
     const coreMaterial = new THREE.SpriteMaterial({
       map: smokeTexture,
       color: 0xffe0e4,
-      blending: THREE.AdditiveBlending,
+      blending: safeBlending,
       transparent: true,
       opacity: rival ? 0.72 : 0.62,
       depthWrite: false,
+      alphaTest: 0.02,
     });
     const core = new THREE.Sprite(coreMaterial);
     core.position.set(x, 0.57, -1.87);
     core.scale.setScalar(0.22);
+    core.visible = !isMobile;
     car.add(core);
     tailCoreMaterials.push(coreMaterial);
     tailHaloMaterials.push(haloMaterial);
@@ -776,7 +800,7 @@ function makeCar(bodyColor: number, rival = false) {
   const spillMaterial = new THREE.MeshBasicMaterial({
     map: tailSpillTexture,
     color: 0xff183d,
-    blending: THREE.AdditiveBlending,
+    blending: safeBlending,
     transparent: true,
     opacity: 0.08,
     depthWrite: false,
@@ -788,6 +812,7 @@ function makeCar(bodyColor: number, rival = false) {
   );
   tailSpill.position.set(0, 0.045, -2.85);
   tailSpill.rotation.x = -Math.PI / 2;
+  tailSpill.visible = !isMobile;
   car.add(tailSpill);
   car.userData.tailLights = { coreMaterials: tailCoreMaterials, haloMaterials: tailHaloMaterials, sprites: tailSprites, spillMaterial, intensity: 0.45, rival };
 
@@ -829,11 +854,12 @@ function makeCar(bodyColor: number, rival = false) {
         vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
         fragmentShader: `uniform vec3 tint;uniform float strength;varying vec2 vUv;void main(){float edge=smoothstep(0.0,.34,vUv.x)*smoothstep(0.0,.34,1.0-vUv.x);float fade=pow(1.0-vUv.y,1.8)*smoothstep(0.0,.08,vUv.y);gl_FragColor=vec4(tint,edge*fade*strength);}`,
         transparent: true,
-        blending: THREE.AdditiveBlending,
+        blending: safeBlending,
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
     );
+    beam.visible = !isMobile;
     car.add(beam);
   }
   mergeCarBodyParts(car);
@@ -876,7 +902,7 @@ const trailMaterial = new THREE.ShaderMaterial({
   uniforms: { tint: { value: new THREE.Color(0xff193c) } },
   vertexShader: `attribute float aAlpha; varying float vAlpha; void main(){vAlpha=aAlpha;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
   fragmentShader: `uniform vec3 tint; varying float vAlpha; void main(){float soft=sin(vAlpha*1.5708);gl_FragColor=vec4(tint,soft*vAlpha);}`,
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  transparent: true, depthWrite: false, blending: safeBlending, side: THREE.DoubleSide,
 });
 const bleedMaterial = trailMaterial.clone();
 bleedMaterial.uniforms.tint.value = new THREE.Color(0xb80b24);
@@ -2024,7 +2050,7 @@ function updateEffects(dt: number) {
 function setReducedEffects(enabled: boolean) {
   if (reducedEffects === enabled) return;
   reducedEffects = enabled;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : isMobile ? 1.25 : 1.7));
   renderer.setSize(innerWidth, innerHeight);
   fireworkPoints.visible = !enabled;
   finalRings.visible = !enabled;
@@ -2152,7 +2178,7 @@ function animate() {
   const playerTailTarget = braking ? 1 : accelerating ? 0.42 : 0.68;
   playerTailIntensity = THREE.MathUtils.lerp(playerTailIntensity, playerTailTarget, 1 - Math.pow(0.001, dt));
   updateTailLights(playerCar, playerTailIntensity, dt);
-  if (!reducedEffects && running && drifting) emitDriftSmoke(playerFrame, now);
+  if (!isMobile && !reducedEffects && running && drifting) emitDriftSmoke(playerFrame, now);
   if (running && currentLap === TOTAL_LAPS) spawnFirework(playerFrame, now);
   updateEffects(dt);
   let leadFrame = trackFrame(0);
@@ -2309,6 +2335,6 @@ animate();
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : isMobile ? 1.25 : 1.7));
   renderer.setSize(innerWidth, innerHeight);
 });
