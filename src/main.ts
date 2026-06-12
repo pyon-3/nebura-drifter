@@ -137,6 +137,28 @@ const STAGES: StageConfig[] = [{
     { sky: 0x0b1d31, fog: 0x102844, grid: 0x42b7cf, opacity: 0.42 },
     { sky: 0x2c0c32, fog: 0x35103d, grid: 0xec4fb0, opacity: 0.52 },
   ],
+}, {
+  id: "blue-neon-shift",
+  name: "BLUE NEON SHIFT",
+  controlPoints: [
+    [-92, 0, -34], [-48, 3, -58], [12, 6, -62], [72, 4, -48],
+    [98, 0, -18], [76, -4, 6], [38, -6, 0], [20, -3, 28],
+    [66, 2, 42], [86, 6, 76], [42, 9, 94], [-18, 8, 84],
+    [-62, 4, 62], [-78, 0, 30], [-50, -5, 10], [-88, -3, -12],
+  ],
+  tension: 0.2,
+  targetLengthMeters: 3600,
+  worldToMeters: 1.3,
+  trackWidth: 9.2,
+  segments: 400,
+  laps: 2,
+  aiTopSpeedBaseKmh: 226,
+  bgmIndex: 2,
+  beatRate: 2.25,
+  themes: [
+    { sky: 0x071531, fog: 0x081b38, grid: 0x279bd8, opacity: 0.42 },
+    { sky: 0x15104a, fog: 0x171451, grid: 0x54d9ff, opacity: 0.58 },
+  ],
 }];
 let stage = STAGES[0];
 let oval = new THREE.CatmullRomCurve3([], true);
@@ -557,6 +579,7 @@ const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
 const bgmTracks = [
   document.querySelector<HTMLAudioElement>("#bgm1")!,
   document.querySelector<HTMLAudioElement>("#bgm2")!,
+  document.querySelector<HTMLAudioElement>("#bgm3")!,
 ];
 let bgm = bgmTracks[stage.bgmIndex];
 const finishBgm = document.querySelector<HTMLAudioElement>("#finishBgm")!;
