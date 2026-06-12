@@ -53,8 +53,12 @@
     <div id="title">
       <h1>NEBURA<br /><b>DRIFTER</b></h1>
       <p>FOLLOW THE RED AFTERIMAGE</p>
-      <button>ENTER GRID</button>
-      <small>LEFT PAD TO STEER // GAS TO START</small>
+      <div id="stageSelect">
+        <button class="stage-card selected" data-stage="0"><b>NEON GRID</b><small>2.0 KM // HIGH SPEED</small></button>
+        <button class="stage-card" data-stage="1"><b>RIDGE HELIX</b><small>2.4 KM // TECHNICAL</small></button>
+      </div>
+      <button id="enterGrid">ENTER GRID</button>
+      <small>SELECT STAGE // LEFT PAD TO STEER</small>
     </div>
     <audio id="bgm" loop preload="none" src="/Nebura_Drifter.mp3"></audio>
     <audio id="finishBgm" loop preload="none" src="/Nebura_Afterglow.mp3"></audio>

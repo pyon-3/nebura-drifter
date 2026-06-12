@@ -23,6 +23,8 @@ moon.position.set(-12, 18, -8);
 scene.add(moon);
 const wireMaterials: THREE.LineBasicMaterial[] = [];
 const gateMaterials: THREE.LineBasicMaterial[] = [];
+let stageGroup = new THREE.Group();
+scene.add(stageGroup);
 
 function addWireEnvironment() {
   const city = new THREE.Group();
@@ -49,7 +51,7 @@ function addWireEnvironment() {
     mountainPoints.push(new THREE.Vector3(Math.cos(angle) * radius, 30 + Math.sin(i * 2.7) * 28, Math.sin(angle) * radius));
   }
   city.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(mountainPoints), violet));
-  scene.add(city);
+  stageGroup.add(city);
 
   for (let i = 0; i < 32; i++) {
     const f = trackFrame(i / 32);
@@ -66,7 +68,7 @@ function addWireEnvironment() {
     top.position.copy(f.point).addScaledVector(f.normal, 5.45);
     top.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     gate.add(top);
-    scene.add(gate);
+    stageGroup.add(gate);
   }
 }
 
@@ -108,23 +110,50 @@ const STAGES: StageConfig[] = [{
     { sky: 0x0c281d, fog: 0x0d3027, grid: 0x38a589, opacity: 0.42 },
     { sky: 0x32101f, fog: 0x3a1020, grid: 0xc43d68, opacity: 0.5 },
   ],
+}, {
+  id: "ridge-helix",
+  name: "RIDGE HELIX",
+  controlPoints: [
+    [-70, 0, -30], [-20, 2, -42], [40, 3.5, -38], [72, 2, -18], [60, 0, 6],
+    [28, -2.5, 14], [34, -1.5, 34], [66, 1.5, 44], [50, 4, 62], [8, 5, 58],
+    [-30, 3, 44], [-48, 0, 20], [-36, -2.5, 2], [-58, -3, -14], [-76, -1, -22],
+  ],
+  tension: 0.22,
+  targetLengthMeters: 2400,
+  worldToMeters: 1.3,
+  trackWidth: 10,
+  segments: 320,
+  laps: 4,
+  aiTopSpeedBaseKmh: 210,
+  themes: [
+    { sky: 0x24112d, fog: 0x2d132d, grid: 0xc05b8f, opacity: 0.28 },
+    { sky: 0x16102f, fog: 0x1c153b, grid: 0x745fc9, opacity: 0.35 },
+    { sky: 0x0b1d31, fog: 0x102844, grid: 0x42b7cf, opacity: 0.42 },
+    { sky: 0x2c0c32, fog: 0x35103d, grid: 0xec4fb0, opacity: 0.52 },
+  ],
 }];
-const stage = STAGES[0];
-const trackPoints = stage.controlPoints.map(([x, y, z]) => new THREE.Vector3(x, y, z));
-const baseOval = new THREE.CatmullRomCurve3(trackPoints, true, "catmullrom", stage.tension);
-const COURSE_SCALE = stage.targetLengthMeters / (baseOval.getLength() * stage.worldToMeters);
-const oval = new THREE.CatmullRomCurve3(
-  trackPoints.map(point => point.clone().multiplyScalar(COURSE_SCALE)),
-  true,
-  "catmullrom",
-  stage.tension,
-);
-const TRACK_WIDTH = stage.trackWidth;
-const SEGMENTS = stage.segments;
-const TRACK_LENGTH_METERS = oval.getLength() * stage.worldToMeters;
-const WORLD_TO_METERS = stage.worldToMeters;
-const TOTAL_LAPS = stage.laps;
-const TRACK_FLOOR_Y = Math.min(...oval.getSpacedPoints(160).map(point => point.y)) - 0.5;
+let stage = STAGES[0];
+let oval = new THREE.CatmullRomCurve3([], true);
+let TRACK_WIDTH = stage.trackWidth;
+let SEGMENTS = stage.segments;
+let TRACK_LENGTH_METERS = stage.targetLengthMeters;
+let WORLD_TO_METERS = stage.worldToMeters;
+let TOTAL_LAPS = stage.laps;
+let TRACK_FLOOR_Y = -0.5;
+function configureStage(config: StageConfig) {
+  stage = config;
+  const points = stage.controlPoints.map(([x, y, z]) => new THREE.Vector3(x, y, z));
+  const base = new THREE.CatmullRomCurve3(points, true, "catmullrom", stage.tension);
+  const scale = stage.targetLengthMeters / (base.getLength() * stage.worldToMeters);
+  oval = new THREE.CatmullRomCurve3(points.map(point => point.multiplyScalar(scale)), true, "catmullrom", stage.tension);
+  TRACK_WIDTH = stage.trackWidth;
+  SEGMENTS = stage.segments;
+  TRACK_LENGTH_METERS = oval.getLength() * stage.worldToMeters;
+  WORLD_TO_METERS = stage.worldToMeters;
+  TOTAL_LAPS = stage.laps;
+  TRACK_FLOOR_Y = Math.min(...oval.getSpacedPoints(160).map(point => point.y)) - 0.5;
+}
+configureStage(stage);
 const MAX_SPEED_MPS = 288 / 3.6;
 
 function trackFrame(u: number, lane = 0) {
@@ -169,11 +198,11 @@ function makeRoad() {
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
-  scene.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.98, metalness: 0.05 })));
+  stageGroup.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.98, metalness: 0.05 })));
 
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x31dcf4, transparent: true, opacity: 0.72 });
-  scene.add(new THREE.Line(edgeL.length ? new THREE.BufferGeometry().setFromPoints(edgeL) : new THREE.BufferGeometry(), edgeMat));
-  scene.add(new THREE.Line(edgeR.length ? new THREE.BufferGeometry().setFromPoints(edgeR) : new THREE.BufferGeometry(), edgeMat));
+  stageGroup.add(new THREE.Line(edgeL.length ? new THREE.BufferGeometry().setFromPoints(edgeL) : new THREE.BufferGeometry(), edgeMat));
+  stageGroup.add(new THREE.Line(edgeR.length ? new THREE.BufferGeometry().setFromPoints(edgeR) : new THREE.BufferGeometry(), edgeMat));
 
   for (let i = 0; i < 132; i++) {
     const f = trackFrame(i / 132);
@@ -184,7 +213,7 @@ function makeRoad() {
       );
       post.position.copy(f.point).addScaledVector(f.right, side * 6.25).addScaledVector(f.normal, 0.35);
       post.quaternion.setFromUnitVectors(up, f.normal);
-      scene.add(post);
+      stageGroup.add(post);
     }
   }
 }
@@ -197,7 +226,7 @@ const floor = new THREE.Mesh(
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = TRACK_FLOOR_Y;
-scene.add(floor);
+stageGroup.add(floor);
 const grid = new THREE.GridHelper(2200, 110, 0x31dff4, 0x174b69);
 grid.position.y = TRACK_FLOOR_Y + 0.04;
 const gridMaterials = (Array.isArray(grid.material) ? grid.material : [grid.material]) as THREE.LineBasicMaterial[];
@@ -206,7 +235,7 @@ gridMaterials.forEach(material => {
   material.opacity = 0.16;
   material.depthWrite = false;
 });
-scene.add(grid);
+stageGroup.add(grid);
 
 const starGeo = new THREE.BufferGeometry();
 const starPos: number[] = [];
@@ -532,6 +561,8 @@ const bgmVolumeEl = document.querySelector<HTMLInputElement>("#bgmVolume")!;
 const sfxVolumeEl = document.querySelector<HTMLInputElement>("#sfxVolume")!;
 const bgmValueEl = document.querySelector<HTMLOutputElement>("#bgmValue")!;
 const sfxValueEl = document.querySelector<HTMLOutputElement>("#sfxValue")!;
+const enterGridEl = document.querySelector<HTMLButtonElement>("#enterGrid")!;
+const stageCards = [...document.querySelectorAll<HTMLButtonElement>(".stage-card")];
 let touchGas = false;
 let touchBrake = false;
 let audioContext: AudioContext | null = null;
@@ -553,9 +584,8 @@ let windGain: GainNode | null = null;
 let tireSource: AudioBufferSourceNode | null = null;
 let tireGain: GainNode | null = null;
 
-const lapThemes = stage.themes;
 function applyLapTheme(lap: number) {
-  const theme = lapThemes[Math.min(lap - 1, lapThemes.length - 1)];
+  const theme = stage.themes[Math.min(lap - 1, stage.themes.length - 1)];
   scene.background = new THREE.Color(theme.sky);
   scene.fog = new THREE.FogExp2(theme.fog, 0.0016);
   gridMaterials.forEach(material => {
@@ -742,6 +772,21 @@ function playFinishBgm() {
     finishBgm.addEventListener("canplay", tryPlay, { once: true });
   });
 }
+let selectedStageIndex = 0;
+stageCards.forEach((card, index) => {
+  card.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    selectedStageIndex = index;
+    stageCards.forEach((item, itemIndex) => item.classList.toggle("selected", itemIndex === selectedStageIndex));
+  });
+});
+enterGridEl.addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  e.preventDefault();
+  switchStage(selectedStageIndex);
+  arm();
+});
 addEventListener("pointerdown", e => { if (!replaying) arm(); });
 for (const gesture of ["gesturestart", "gesturechange", "gestureend"]) {
   document.addEventListener(gesture, e => e.preventDefault(), { passive: false });
@@ -922,6 +967,36 @@ function resetRace() {
 function restartRace() {
   resetRace();
   requestStart();
+}
+
+function switchStage(index: number) {
+  const nextStage = STAGES[index] ?? STAGES[0];
+  if (nextStage !== stage) {
+    stageGroup.traverse(object => {
+      if (object === floor || object === grid) return;
+      if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.LineSegments) {
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach(material => material.dispose());
+      }
+    });
+    scene.remove(stageGroup);
+    stageGroup = new THREE.Group();
+    scene.add(stageGroup);
+    wireMaterials.length = 0;
+    gateMaterials.length = 0;
+    configureStage(nextStage);
+    makeRoad();
+    addWireEnvironment();
+    floor.position.y = TRACK_FLOOR_Y;
+    grid.position.y = TRACK_FLOOR_Y + 0.04;
+    stageGroup.add(floor, grid);
+    rivals.forEach((rival, i) => {
+      rival.topSpeedMps = (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6;
+    });
+  }
+  totalLapsEl.textContent = String(TOTAL_LAPS);
+  resetRace();
 }
 
 function startFinish(now: number) {
