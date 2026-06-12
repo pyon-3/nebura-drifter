@@ -24,6 +24,7 @@ scene.add(moon);
 const wireMaterials: THREE.LineBasicMaterial[] = [];
 const gateMaterials: THREE.LineBasicMaterial[] = [];
 let stageGroup = new THREE.Group();
+let landmarkRing: THREE.Mesh | null = null;
 scene.add(stageGroup);
 
 function addWireEnvironment() {
@@ -57,6 +58,7 @@ function addWireEnvironment() {
     const f = trackFrame(i / 32);
     const gate = new THREE.Group();
     const material = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff6a95 : 0x75f3ff, transparent: true, opacity: 0.55 });
+    const glowMaterial = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff4e82 : 0x48eaff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false });
     gateMaterials.push(material);
     for (const side of [-1, 1]) {
       const pillar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 5.5, 0.16)), material);
@@ -68,8 +70,24 @@ function addWireEnvironment() {
     top.position.copy(f.point).addScaledVector(f.normal, 5.45);
     top.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     gate.add(top);
+    const glow = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(18.2, 6.4, 0.5)), glowMaterial);
+    glow.position.copy(f.point).addScaledVector(f.normal, 3.2);
+    glow.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
+    gate.add(glow);
     stageGroup.add(gate);
   }
+
+  const towerMat = new THREE.LineBasicMaterial({ color: 0xff4f86, transparent: true, opacity: 0.62 });
+  const tower = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CylinderGeometry(8, 20, 150, 6, 5)), towerMat);
+  tower.position.set(230, 74, -310);
+  stageGroup.add(tower);
+  landmarkRing = new THREE.Mesh(
+    new THREE.TorusGeometry(54, 0.8, 4, 48),
+    new THREE.MeshBasicMaterial({ color: 0x66ecff, wireframe: true, transparent: true, opacity: 0.72, blending: THREE.AdditiveBlending }),
+  );
+  landmarkRing.position.set(-320, 72, 230);
+  landmarkRing.rotation.x = Math.PI * 0.4;
+  stageGroup.add(landmarkRing);
 }
 
 type LapTheme = { sky: number; fog: number; grid: number; opacity: number };
@@ -244,6 +262,30 @@ function makeRoad() {
       stageGroup.add(post);
     }
   }
+
+  const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xb7f8ff, transparent: true, opacity: 0.72 });
+  const curbRed = new THREE.MeshBasicMaterial({ color: 0xff3157 });
+  const curbWhite = new THREE.MeshBasicMaterial({ color: 0xd9faff });
+  const addRoadBox = (u: number, lane: number, width: number, length: number, material: THREE.Material) => {
+    const f = trackFrame(u, lane);
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(width, 0.035, length), material);
+    marker.position.copy(f.point).addScaledVector(f.normal, 0.055);
+    marker.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
+    stageGroup.add(marker);
+  };
+  for (let i = 0; i < 12; i++) addRoadBox(0.002 + i * 0.0008, (i - 5.5) * TRACK_WIDTH / 12, TRACK_WIDTH / 13, 0.42, i % 2 ? curbRed : curbWhite);
+  for (let section = 0; section < 8; section++) {
+    const u = section / 8 + 0.071;
+    for (let row = 0; row < 3; row++) {
+      const offset = (row - 1) * 1.25;
+      addRoadBox(u + row * 0.0016, offset - 0.6, 0.18, 2.2, markerMaterial);
+      addRoadBox(u + row * 0.0016, offset + 0.6, 0.18, 2.2, markerMaterial);
+    }
+  }
+  for (let i = 0; i < 72; i++) {
+    const u = i / 72;
+    for (const side of [-1, 1]) addRoadBox(u, side * (TRACK_WIDTH * 0.5 - 0.24), 0.44, 1.6, i % 2 ? curbRed : curbWhite);
+  }
 }
 makeRoad();
 addWireEnvironment();
@@ -400,6 +442,12 @@ function makeCar(bodyColor: number, rival = false) {
     );
     glow.position.set(x, 0.56, -1.847);
     car.add(glow);
+    const bloom = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.18, 0.54),
+      new THREE.MeshBasicMaterial({ color: 0xff163d, blending: THREE.AdditiveBlending, transparent: true, opacity: rival ? 0.18 : 0.13, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    bloom.position.set(x, 0.56, -1.84);
+    car.add(bloom);
     const lamp = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.12, 0.08),
       new THREE.MeshBasicMaterial({ color: rival ? 0xff7180 : 0xff455c }),
@@ -445,6 +493,12 @@ function makeCar(bodyColor: number, rival = false) {
 
 const playerCar = makeCar(0x0a5164);
 scene.add(playerCar);
+const ghostCar = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.82, 0.72, 3.25)),
+  new THREE.LineBasicMaterial({ color: 0x72efff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending }),
+);
+ghostCar.visible = false;
+scene.add(ghostCar);
 type Rival = { car: THREE.Group; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number };
 const rivalColors = [0x171424, 0x42203e, 0x112c4a, 0x3f1623, 0x153d39, 0x422b12, 0x292044];
 const rivals: Rival[] = rivalColors.map((color, i) => {
@@ -561,6 +615,13 @@ let lastPlayerEmit = 0;
 let lastReplayCapture = 0;
 type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number; yawError: number; yawRate: number };
 const replayFrames: ReplayFrame[] = [];
+type GhostFrame = { time: number; progress: number; lane: number; yaw: number };
+type BestLap = { duration: number; frames: GhostFrame[] };
+let bestLap: BestLap | null = null;
+let lapFrames: GhostFrame[] = [];
+let lapStartedAt = 0;
+let wasOffRoad = false;
+let previousDriftState: "grip" | "entry" | "hold" | "recovery" = "grip";
 const title = document.querySelector("#title")!;
 const speedEl = document.querySelector("#speed")!;
 const speedBarEl = document.querySelector<HTMLElement>("#speedBar")!;
@@ -571,6 +632,10 @@ const totalLapsEl = document.querySelector("#totalLaps")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
 const radioCallEl = document.querySelector<HTMLElement>("#radioCall")!;
 const radioCallTextEl = radioCallEl.querySelector<HTMLElement>("b")!;
+const minimapTrackEl = document.querySelector<SVGPathElement>("#minimapTrack")!;
+const minimapPlayerEl = document.querySelector<SVGCircleElement>("#minimapPlayer")!;
+const minimapLeadEl = document.querySelector<SVGCircleElement>("#minimapLead")!;
+const offroadVignetteEl = document.querySelector<HTMLElement>("#offroadVignette")!;
 const announcementEl = document.querySelector<HTMLElement>("#announcement")!;
 const skipReplayEl = document.querySelector<HTMLButtonElement>("#skipReplay")!;
 const restartRaceEl = document.querySelector<HTMLButtonElement>("#restartRace")!;
@@ -619,6 +684,69 @@ let windSource: AudioBufferSourceNode | null = null;
 let windGain: GainNode | null = null;
 let tireSource: AudioBufferSourceNode | null = null;
 let tireGain: GainNode | null = null;
+
+function haptic(pattern: number | number[]) {
+  navigator.vibrate?.(pattern);
+}
+
+function minimapPoint(progress: number) {
+  const point = oval.getPointAt(((progress % 1) + 1) % 1);
+  return {
+    x: 8 + (point.x - minimapBounds.minX) / Math.max(1, minimapBounds.maxX - minimapBounds.minX) * 84,
+    y: 8 + (point.z - minimapBounds.minZ) / Math.max(1, minimapBounds.maxZ - minimapBounds.minZ) * 84,
+  };
+}
+
+const minimapBounds = { minX: 0, maxX: 1, minZ: 0, maxZ: 1 };
+function updateMinimapTrack() {
+  const source = oval.getSpacedPoints(120);
+  minimapBounds.minX = Math.min(...source.map(point => point.x));
+  minimapBounds.maxX = Math.max(...source.map(point => point.x));
+  minimapBounds.minZ = Math.min(...source.map(point => point.z));
+  minimapBounds.maxZ = Math.max(...source.map(point => point.z));
+  const points = Array.from({ length: 81 }, (_, i) => minimapPoint(i / 80));
+  minimapTrackEl.setAttribute("d", points.map((point, i) => `${i ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" "));
+}
+
+function loadBestLap() {
+  try {
+    bestLap = JSON.parse(localStorage.getItem(`nebura.bestLap.${stage.id}`) ?? "null") as BestLap | null;
+  } catch {
+    bestLap = null;
+  }
+  ghostCar.visible = Boolean(bestLap?.frames.length);
+}
+
+function saveLap(now: number) {
+  const duration = now - lapStartedAt;
+  if (duration < 20 || lapFrames.length < 20 || bestLap && duration >= bestLap.duration) return;
+  bestLap = { duration, frames: lapFrames.slice() };
+  localStorage.setItem(`nebura.bestLap.${stage.id}`, JSON.stringify(bestLap));
+  showRadioCall("PERSONAL SIGNAL // STORED", 200);
+}
+
+function updateGhost(now: number) {
+  if (!bestLap?.frames.length || !running) {
+    ghostCar.visible = false;
+    return;
+  }
+  ghostCar.visible = true;
+  const time = Math.min(bestLap.duration, Math.max(0, now - lapStartedAt));
+  let index = 0;
+  while (index < bestLap.frames.length - 2 && bestLap.frames[index + 1].time < time) index++;
+  const a = bestLap.frames[index];
+  const b = bestLap.frames[Math.min(index + 1, bestLap.frames.length - 1)];
+  const blend = THREE.MathUtils.clamp((time - a.time) / Math.max(0.001, b.time - a.time), 0, 1);
+  const progress = currentLap - 1 + THREE.MathUtils.lerp(a.progress, b.progress, blend);
+  const ghostFrame = trackFrame(progress, THREE.MathUtils.lerp(a.lane, b.lane, blend));
+  ghostCar.position.copy(ghostFrame.point).addScaledVector(ghostFrame.normal, 0.42);
+  const yaw = a.yaw + wrapAngle(b.yaw - a.yaw) * blend;
+  const tangent = ghostFrame.tangent.clone().applyAxisAngle(ghostFrame.normal, yaw);
+  const right = ghostFrame.right.clone().applyAxisAngle(ghostFrame.normal, yaw);
+  ghostCar.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, ghostFrame.normal, tangent));
+}
+updateMinimapTrack();
+loadBestLap();
 
 function playerPosition() {
   return 1 + rivals.filter(rival => rival.progress > playerProgress).length;
@@ -731,7 +859,17 @@ const finalSkyColor = new THREE.Color();
 const finalFogColor = new THREE.Color();
 const finalAccentColor = new THREE.Color();
 function updateFinalLapVisuals(now: number) {
-  if (currentLap !== TOTAL_LAPS || !running) return;
+  if (!running) return;
+  if (currentLap !== TOTAL_LAPS) {
+    const remaining = TOTAL_LAPS - currentLap;
+    if (remaining <= 2) {
+      const anticipation = Math.pow(Math.sin(now * (remaining === 1 ? 2.8 : 1.8)) * 0.5 + 0.5, 4);
+      const baseOpacity = stage.themes[Math.min(currentLap - 1, stage.themes.length - 1)].opacity;
+      gridMaterials.forEach(material => { material.opacity = baseOpacity + anticipation * (remaining === 1 ? 0.075 : 0.035); });
+      gateMaterials.forEach(material => { material.opacity = 0.55 + anticipation * 0.12; });
+    }
+    return;
+  }
   const pulse = getBgmPulse();
   const wave = Math.sin(bgm.currentTime * 1.15) * 0.5 + 0.5;
   const hue = (bgm.currentTime * 0.025 + wave * 0.08) % 1;
@@ -1049,6 +1187,12 @@ function resetRace() {
   previousAccelerating = false;
   neutralSteerTime = 0;
   replayFrames.length = 0;
+  lapFrames.length = 0;
+  lapStartedAt = 0;
+  wasOffRoad = false;
+  previousDriftState = "grip";
+  ghostCar.visible = Boolean(bestLap?.frames.length);
+  offroadVignetteEl.style.opacity = "0";
   samples.length = 0;
   playerSamples.length = 0;
   rivals.forEach((rival, i) => {
@@ -1107,6 +1251,8 @@ function switchStage(index: number) {
     rivals.forEach((rival, i) => {
       rival.topSpeedMps = (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6;
     });
+    updateMinimapTrack();
+    loadBestLap();
   }
   bgmTracks.forEach(track => {
     track.pause();
@@ -1121,6 +1267,8 @@ function switchStage(index: number) {
 
 function startFinish(now: number) {
   if (finishHandled) return;
+  saveLap(now);
+  haptic([25, 35, 55]);
   finishHandled = true;
   while (replayFrames.length > 2 && replayFrames[0].time < now - 20) replayFrames.shift();
   running = false;
@@ -1403,6 +1551,8 @@ function animate() {
       if (value) playCountdownBeep(value === "GO");
       if (value === "GO") {
         running = true;
+        lapStartedAt = now;
+        lapFrames.length = 0;
         bgm.volume = bgmVolume;
         void bgm.play().catch(() => {});
         showRadioCall(lapAnnouncement(1, playerPosition()), 520);
@@ -1434,7 +1584,19 @@ function animate() {
   if (running && now - lastReplayCapture > 0.04) {
     lastReplayCapture = now;
     replayFrames.push({ time: now, progress: playerProgress, lane, lateralVelocity, yawError, yawRate });
+    lapFrames.push({
+      time: now - lapStartedAt,
+      progress: THREE.MathUtils.clamp(playerProgress - (currentLap - 1), 0, 1),
+      lane,
+      yaw: yawError,
+    });
   }
+  if (running && driftState === "entry" && previousDriftState === "grip") haptic(12);
+  if (running && dynamics.offRoad && !wasOffRoad) haptic([18, 24, 18]);
+  previousDriftState = driftState;
+  wasOffRoad = dynamics.offRoad;
+  const offroadStrength = dynamics.offRoad ? THREE.MathUtils.clamp((Math.abs(lane) - TRACK_WIDTH * 0.46) / (TRACK_WIDTH * 0.2), 0.18, 1) : 0;
+  offroadVignetteEl.style.opacity = String(offroadStrength * (0.55 + Math.sin(now * 36) * 0.15));
 
   let playerFrame = placeCar(playerCar, playerProgress, lane, yawError, -lateralVelocity * 0.012);
   playerCar.rotateX(THREE.MathUtils.clamp(-longitudinalAccel * 0.004, -0.032, 0.032));
@@ -1474,6 +1636,17 @@ function animate() {
     const frame = placeCar(rival.car, rival.progress, rivalLane, weave * 0.018, -weave * 0.012);
     if (i === 0) leadFrame = frame;
   });
+  const playerMap = minimapPoint(playerProgress);
+  const leadMap = minimapPoint(Math.max(...rivals.map(rival => rival.progress)));
+  minimapPlayerEl.setAttribute("cx", String(playerMap.x));
+  minimapPlayerEl.setAttribute("cy", String(playerMap.y));
+  minimapLeadEl.setAttribute("cx", String(leadMap.x));
+  minimapLeadEl.setAttribute("cy", String(leadMap.y));
+  updateGhost(now);
+  if (landmarkRing) {
+    landmarkRing.rotation.z += dt * 0.16;
+    landmarkRing.rotation.y += dt * 0.08;
+  }
 
   if (now - lastEmit > 0.035) {
     lastEmit = now;
@@ -1534,6 +1707,9 @@ function animate() {
   const lap = Math.min(TOTAL_LAPS, Math.floor(playerProgress) + 1);
   lapEl.textContent = String(lap);
   if (lap !== currentLap) {
+    saveLap(now);
+    lapFrames.length = 0;
+    lapStartedAt = now;
     currentLap = lap;
     applyLapTheme(lap);
     showRadioCall(lapAnnouncement(lap, position), lap === TOTAL_LAPS ? 300 : 120);
@@ -1551,7 +1727,7 @@ function animate() {
     engineOsc.frequency.setTargetAtTime(42 + speedRatio * 92 + (accelerating ? 12 : 0), t, 0.08);
     engineGain.gain.setTargetAtTime(running ? 0.08 + speedRatio * 0.18 : 0, t, 0.12);
     windGain.gain.setTargetAtTime(running ? speedRatio * speedRatio * 0.11 : 0, t, 0.18);
-    tireGain.gain.setTargetAtTime(drifting ? Math.min(0.22, Math.abs(lateralVelocity) * 0.032) : 0, t, 0.06);
+    tireGain.gain.setTargetAtTime(dynamics.offRoad ? 0.18 + speedRatio * 0.12 : drifting ? Math.min(0.22, Math.abs(lateralVelocity) * 0.032) : 0, t, 0.06);
   }
   if (finishHandled) {
     announcementEl.textContent = "FINISH";
