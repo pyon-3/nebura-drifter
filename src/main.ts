@@ -852,6 +852,7 @@ let lapStartedAt = 0;
 let wasOffRoad = false;
 let previousDriftState: "grip" | "entry" | "hold" | "recovery" = "grip";
 const title = document.querySelector("#title")!;
+const courseSelect = document.querySelector<HTMLElement>("#courseSelect")!;
 const speedEl = document.querySelector("#speed")!;
 const speedBarEl = document.querySelector<HTMLElement>("#speedBar")!;
 const scoreEl = document.querySelector("#score")!;
@@ -890,7 +891,9 @@ const bgmVolumeEl = document.querySelector<HTMLInputElement>("#bgmVolume")!;
 const sfxVolumeEl = document.querySelector<HTMLInputElement>("#sfxVolume")!;
 const bgmValueEl = document.querySelector<HTMLOutputElement>("#bgmValue")!;
 const sfxValueEl = document.querySelector<HTMLOutputElement>("#sfxValue")!;
+const goCourseSelectEl = document.querySelector<HTMLButtonElement>("#goCourseSelect")!;
 const enterGridEl = document.querySelector<HTMLButtonElement>("#enterGrid")!;
+const backToTitleEl = document.querySelector<HTMLButtonElement>("#backToTitle")!;
 const stageCards = [...document.querySelectorAll<HTMLButtonElement>(".stage-card")];
 let touchGas = false;
 let touchBrake = false;
@@ -900,6 +903,7 @@ let bgmVolume = Number(localStorage.getItem("nebura-bgm-volume") ?? 68) / 100;
 let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
 let finishBgmWarmed = false;
 let radioCallTimer = 0;
+let menuScreen: "title" | "course" | "none" = "title";
 bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
@@ -1202,7 +1206,22 @@ function setVirtualSteer(clientX: number) {
   steer = amount;
   steeringKnobEl.style.transform = `translateX(${amount * rect.width * 0.25}px)`;
 }
-function arm() { armed = true; title.classList.add("hidden"); }
+function showTitleScreen() {
+  menuScreen = "title";
+  title.classList.remove("hidden");
+  courseSelect.classList.add("hidden");
+}
+function showCourseSelect() {
+  menuScreen = "course";
+  title.classList.add("hidden");
+  courseSelect.classList.remove("hidden");
+}
+function hideMenus() {
+  menuScreen = "none";
+  title.classList.add("hidden");
+  courseSelect.classList.add("hidden");
+}
+function arm() { armed = true; }
 function playCountdownBeep(go = false) {
   if (!audioContext) return;
   const oscillator = audioContext.createOscillator();
@@ -1218,7 +1237,7 @@ function playCountdownBeep(go = false) {
 function requestStart() {
   if (running || replaying || countdownEnd > 0 || playerProgress >= TOTAL_LAPS) return;
   armed = true;
-  title.classList.add("hidden");
+  hideMenus();
   startSfx();
   bgm.load();
   warmFinishBgm();
@@ -1249,6 +1268,11 @@ function playFinishBgm() {
   });
 }
 let selectedStageIndex = 0;
+goCourseSelectEl.addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  e.preventDefault();
+  showCourseSelect();
+});
 stageCards.forEach((card, index) => {
   card.addEventListener("pointerdown", e => {
     e.stopPropagation();
@@ -1261,9 +1285,16 @@ enterGridEl.addEventListener("pointerdown", e => {
   e.stopPropagation();
   e.preventDefault();
   switchStage(selectedStageIndex);
-  arm();
+  requestStart();
 });
-addEventListener("pointerdown", e => { if (!replaying) arm(); });
+backToTitleEl.addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  e.preventDefault();
+  showTitleScreen();
+});
+addEventListener("pointerdown", e => {
+  if (!replaying && menuScreen === "none") arm();
+});
 for (const gesture of ["gesturestart", "gesturechange", "gestureend"]) {
   document.addEventListener(gesture, e => e.preventDefault(), { passive: false });
 }
@@ -1307,6 +1338,9 @@ const keys = new Set<string>();
 addEventListener("keydown", e => {
   if (replaying && e.code === "Escape") { endReplay(); return; }
   if (e.code === "Escape" && armed && !finishHandled) { setPaused(!paused); return; }
+  if (menuScreen === "title" && (e.code === "Enter" || e.code === "Space")) { showCourseSelect(); return; }
+  if (menuScreen === "course" && e.code === "Enter") { switchStage(selectedStageIndex); requestStart(); return; }
+  if (menuScreen !== "none") return;
   keys.add(e.code);
   if (paused) return;
   if (e.code === "ArrowUp" || e.code === "KeyW") requestStart(); else arm();
@@ -1449,6 +1483,7 @@ function resetRace() {
   gasEl.classList.remove("active");
   brakeEl.classList.remove("active");
   resetVisualTheme();
+  if (!finishHandled) showTitleScreen();
 }
 
 function restartRace() {

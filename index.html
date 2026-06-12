@@ -56,13 +56,19 @@
     <div id="title">
       <h1>NEBURA<br /><b>DRIFTER</b></h1>
       <p>FOLLOW THE RED AFTERIMAGE</p>
+      <button id="goCourseSelect">COURSE SELECT</button>
+      <small>PRESS TO PICK A COURSE</small>
+    </div>
+    <div id="courseSelect" class="screen hidden">
+      <h1>COURSE<br /><b>SELECT</b></h1>
       <div id="stageSelect">
         <button class="stage-card selected" data-stage="0"><b>NEON GRID</b><small>2.0 KM // HIGH SPEED</small></button>
         <button class="stage-card" data-stage="1"><b>RIDGE HELIX</b><small>2.4 KM // TECHNICAL</small></button>
         <button class="stage-card" data-stage="2"><b>BLUE NEON SHIFT</b><small>3.6 KM // EXPERT // 2 LAPS</small></button>
       </div>
       <button id="enterGrid">ENTER GRID</button>
-      <small>SELECT STAGE // LEFT PAD TO STEER</small>
+      <button id="backToTitle">BACK</button>
+      <small>SELECT STAGE // THEN ENTER GRID</small>
     </div>
     <audio id="bgm1" loop preload="none" src="/Nebura_Drifter.mp3"></audio>
     <audio id="bgm2" loop preload="none" src="/midnight_run_Remix.mp3"></audio>
