@@ -5,39 +5,24 @@ import "./style.css";
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const isMobileSafari = /iPhone|iPad|iPod/i.test(navigator.userAgent) && /WebKit/i.test(navigator.userAgent);
-const debugParams = new URLSearchParams(location.search);
-const debugFlag = (name: string) => debugParams.get(name) === "1";
-const debugFlags = {
-  noGlow: debugFlag("noglow"),
-  noTrail: debugFlag("notrail"),
-  noBleed: debugFlag("nobleed"),
-  noBloom: debugFlag("nobloom"),
-  noParticles: debugFlag("noparticles"),
-  noSprites: debugFlag("nosprites"),
-  mobileSafe: debugFlag("mobileSafe"),
-  noAA: debugFlag("noaa"),
-  normalBlend: debugFlag("normalblend"),
-  mediumPrecision: debugFlag("mediump"),
-  dpr1: debugFlag("dpr1"),
-};
-const useMobileSafe = debugParams.has("mobileSafe") ? debugFlags.mobileSafe : isMobile;
-const disableGlow = debugFlags.noGlow || useMobileSafe;
-const disableTrail = debugFlags.noTrail;
-const disableBleed = debugFlags.noBleed || useMobileSafe;
-const disableBloom = debugFlags.noBloom || useMobileSafe;
-const disableParticles = debugFlags.noParticles || useMobileSafe;
-const disableSprites = debugFlags.noSprites || useMobileSafe;
-const safeBlending = useMobileSafe || debugFlags.normalBlend ? THREE.NormalBlending : THREE.AdditiveBlending;
+const useMobileSafe = isMobile;
+const disableGlow = useMobileSafe;
+const disableTrail = false;
+const disableBleed = useMobileSafe;
+const disableBloom = useMobileSafe;
+const disableParticles = useMobileSafe;
+const disableSprites = useMobileSafe;
+const safeBlending = useMobileSafe ? THREE.NormalBlending : THREE.AdditiveBlending;
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: !useMobileSafe && !debugFlags.noAA,
+  antialias: !useMobileSafe,
   alpha: false,
   premultipliedAlpha: false,
   powerPreference: "high-performance",
-  precision: isMobileSafari || debugFlags.mobileSafe || debugFlags.mediumPrecision ? "mediump" : "highp",
+  precision: isMobileSafari ? "mediump" : "highp",
 });
-const debugPixelRatioLimit = debugFlags.dpr1 ? 1 : useMobileSafe ? 1.25 : 1.7;
-renderer.setPixelRatio(Math.min(devicePixelRatio, debugPixelRatioLimit));
+const pixelRatioLimit = useMobileSafe ? 1.25 : 1.7;
+renderer.setPixelRatio(Math.min(devicePixelRatio, pixelRatioLimit));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = disableBloom ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
@@ -55,26 +40,6 @@ let fpsSampleStarted = performance.now();
 let fpsSampleFrames = 0;
 let slowFpsWindows = 0;
 let fastFpsWindows = 0;
-
-function addVisualDebugPanel() {
-  if (!isMobile && !Object.values(debugFlags).some(Boolean)) return;
-  const panel = document.createElement("div");
-  panel.style.cssText = "position:fixed;z-index:9999;left:8px;top:max(8px,env(safe-area-inset-top));max-width:calc(100vw - 16px);padding:8px;background:rgba(0,0,0,.82);color:#fff;font:11px/1.35 monospace;border:1px solid #57eaff;pointer-events:auto";
-  const flags: [string, keyof typeof debugFlags][] = [
-    ["noglow", "noGlow"], ["notrail", "noTrail"], ["nobleed", "noBleed"], ["nobloom", "noBloom"],
-    ["noparticles", "noParticles"], ["nosprites", "noSprites"], ["mobileSafe", "mobileSafe"],
-    ["noaa", "noAA"], ["normalblend", "normalBlend"], ["mediump", "mediumPrecision"], ["dpr1", "dpr1"],
-  ];
-  const links = flags.map(([queryName, key]) => {
-    const params = new URLSearchParams(location.search);
-    if (debugFlags[key]) params.delete(queryName); else params.set(queryName, "1");
-    const href = `${location.pathname}?${params.toString()}${location.hash}`;
-    return `<a href="${href}" style="display:inline-block;margin:2px;padding:3px 5px;color:${debugFlags[key] ? "#111" : "#8ef6ff"};background:${debugFlags[key] ? "#8ef6ff" : "#172633"};text-decoration:none">${queryName}:${debugFlags[key] ? "OFF" : "ON"}</a>`;
-  }).join("");
-  panel.innerHTML = `<b>MOBILE VISUAL DEBUG</b><br>safe:${useMobileSafe ? "ON" : "OFF"} bloom:${disableBloom ? "OFF" : "ON"}<br>${links}`;
-  document.body.appendChild(panel);
-}
-addVisualDebugPanel();
 
 function setToneMappingExposure(value: number) {
   renderer.toneMappingExposure = disableBloom ? 1 : value;
@@ -1038,50 +1003,13 @@ function patchEffectTexturesAndVisibility() {
       }
       if ((object instanceof THREE.Sprite || object.userData.requiresTexture) && !("map" in material && material.map instanceof THREE.Texture)) {
         object.visible = false;
-        console.warn("[visual-debug] hidden object with missing texture", object.name || object.type);
+        console.warn("Hidden object with missing texture", object.name || object.type);
       }
     }
   });
 }
 
-function auditSceneRendering() {
-  const rows: Record<string, unknown>[] = [];
-  scene.traverse(object => {
-    for (const material of objectMaterials(object)) {
-      const map = "map" in material && material.map instanceof THREE.Texture ? material.map : undefined;
-      const relevant = object instanceof THREE.Sprite
-        || material instanceof THREE.SpriteMaterial
-        || material instanceof THREE.ShaderMaterial
-        || material.transparent
-        || material.blending === THREE.AdditiveBlending
-        || map instanceof THREE.CanvasTexture
-        || map instanceof THREE.DataTexture
-        || Boolean(map?.image);
-      if (!relevant) continue;
-      rows.push({
-        objectName: object.name || "(unnamed)",
-        objectType: object.type,
-        effectGroup: object.userData.effectGroup ?? "",
-        materialType: material.type,
-        transparent: material.transparent,
-        blending: material.blending,
-        textureType: map?.type ?? "",
-        mapImage: map?.image ?? null,
-        depthWrite: material.depthWrite,
-        depthTest: material.depthTest,
-      });
-    }
-  });
-  console.groupCollapsed(`[visual-debug] scene audit (${rows.length} render entries)`);
-  console.table(rows);
-  const composer = (globalThis as typeof globalThis & { effectComposer?: { passes?: unknown[] } }).effectComposer;
-  console.info("[visual-debug] EffectComposer passes", composer?.passes ?? "none");
-  console.info("[visual-debug] flags", { isMobile, useMobileSafe, ...debugFlags });
-  console.groupEnd();
-}
-
 patchEffectTexturesAndVisibility();
-auditSceneRendering();
 
 function updateRibbon(
   mesh: THREE.Mesh,
@@ -1249,6 +1177,7 @@ let sfxMaster: GainNode | null = null;
 let bgmVolume = Number(localStorage.getItem("nebura-bgm-volume") ?? 68) / 100;
 let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
 let finishBgmWarmed = false;
+let finishBgmPlaybackAllowed = false;
 let radioCallTimer = 0;
 let menuScreen: "title" | "course" | "none" = "title";
 let timeMode: "night" | "dusk" = "night";
@@ -1593,6 +1522,7 @@ function showTitleScreen() {
   courseSelect.classList.add("hidden");
 }
 function showCourseSelect() {
+  stopFinishBgm();
   menuScreen = "course";
   title.classList.add("hidden");
   courseSelect.classList.remove("hidden");
@@ -1617,6 +1547,7 @@ function playCountdownBeep(go = false) {
 }
 function requestStart() {
   if (running || replaying || countdownEnd > 0 || playerProgress >= TOTAL_LAPS) return;
+  stopFinishBgm();
   armed = true;
   hideMenus();
   startSfx();
@@ -1627,23 +1558,24 @@ function requestStart() {
 function warmFinishBgm() {
   if (finishBgmWarmed) return;
   finishBgmWarmed = true;
+  finishBgm.pause();
+  finishBgm.currentTime = 0;
+  finishBgm.muted = false;
+  finishBgm.volume = bgmVolume;
   finishBgm.load();
-  finishBgm.muted = true;
-  void finishBgm.play().then(() => {
-    finishBgm.pause();
-    finishBgm.currentTime = 0;
-    finishBgm.muted = false;
-    finishBgm.volume = bgmVolume;
-  }).catch(() => {
-    finishBgm.muted = false;
-    finishBgmWarmed = false;
-  });
+}
+function stopFinishBgm() {
+  finishBgmPlaybackAllowed = false;
+  finishBgm.pause();
+  finishBgm.currentTime = 0;
 }
 function playFinishBgm() {
+  finishBgmPlaybackAllowed = true;
   const tryPlay = () => {
-    void finishBgm.play().catch(() => {});
+    if (finishBgmPlaybackAllowed) void finishBgm.play().catch(() => {});
   };
   void finishBgm.play().catch(() => {
+    if (!finishBgmPlaybackAllowed) return;
     finishBgm.load();
     finishBgm.addEventListener("canplay", tryPlay, { once: true });
   });
@@ -1867,8 +1799,7 @@ function resetRace() {
     track.pause();
     track.currentTime = 0;
   });
-  finishBgm.pause();
-  finishBgm.currentTime = 0;
+  stopFinishBgm();
   skipReplayEl.classList.remove("show");
   restartRaceEl.classList.remove("show");
   announcementEl.className = "";
@@ -2219,7 +2150,7 @@ function updateEffects(dt: number) {
 function setReducedEffects(enabled: boolean) {
   if (reducedEffects === enabled) return;
   reducedEffects = enabled;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : debugPixelRatioLimit));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : pixelRatioLimit));
   renderer.setSize(innerWidth, innerHeight);
   fireworkPoints.visible = !enabled && !disableParticles;
   finalRings.visible = !enabled && !disableGlow;
@@ -2505,6 +2436,6 @@ animate();
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : debugPixelRatioLimit));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : pixelRatioLimit));
   renderer.setSize(innerWidth, innerHeight);
 });
