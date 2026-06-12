@@ -603,6 +603,8 @@ let sfxMaster: GainNode | null = null;
 let bgmVolume = Number(localStorage.getItem("nebura-bgm-volume") ?? 68) / 100;
 let sfxVolume = Number(localStorage.getItem("nebura-sfx-volume") ?? 48) / 100;
 let finishBgmWarmed = false;
+let announcerVoice: SpeechSynthesisVoice | null = null;
+let announcerTimer = 0;
 bgmVolumeEl.value = String(Math.round(bgmVolume * 100));
 sfxVolumeEl.value = String(Math.round(sfxVolume * 100));
 bgmValueEl.value = bgmVolumeEl.value;
@@ -616,6 +618,57 @@ let windSource: AudioBufferSourceNode | null = null;
 let windGain: GainNode | null = null;
 let tireSource: AudioBufferSourceNode | null = null;
 let tireGain: GainNode | null = null;
+
+function selectAnnouncerVoice() {
+  if (!("speechSynthesis" in window)) return;
+  const voices = speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith("en"));
+  const preferred = ["Daniel", "Samantha", "Karen", "Moira", "Google UK English Male", "Google US English"];
+  announcerVoice = preferred.map(name => voices.find(voice => voice.name.includes(name))).find(Boolean) ?? voices[0] ?? null;
+}
+selectAnnouncerVoice();
+if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", selectAnnouncerVoice);
+
+function playerPosition() {
+  return 1 + rivals.filter(rival => rival.progress > playerProgress).length;
+}
+
+function restoreMusicVolume() {
+  bgm.volume = bgmVolume;
+  finishBgm.volume = bgmVolume;
+}
+
+function announce(text: string, delayMs = 0) {
+  if (!("speechSynthesis" in window) || sfxVolume < 0.02) return;
+  clearTimeout(announcerTimer);
+  speechSynthesis.cancel();
+  announcerTimer = window.setTimeout(() => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = announcerVoice?.lang ?? "en-US";
+    utterance.voice = announcerVoice;
+    utterance.rate = 0.92;
+    utterance.pitch = 0.78;
+    utterance.volume = Math.min(1, 0.48 + sfxVolume * 0.52);
+    bgm.volume = bgmVolume * 0.48;
+    finishBgm.volume = bgmVolume * 0.55;
+    utterance.onend = restoreMusicVolume;
+    utterance.onerror = restoreMusicVolume;
+    speechSynthesis.speak(utterance);
+  }, delayMs);
+}
+
+function lapAnnouncement(lap: number, position: number) {
+  const lapName = ["zero", "one", "two", "three", "four", "five"][lap] ?? String(lap);
+  const prefix = lap === TOTAL_LAPS ? "Final lap." : `Lap ${lapName}.`;
+  if (position === 1) return `${prefix} You own the midnight. Keep it clean.`;
+  if (position <= 5) return `${prefix} Stay focused. Hold your line.`;
+  return `${prefix} Push harder. Chase those red lights.`;
+}
+
+function finishAnnouncement(position: number) {
+  if (position === 1) return "First place. Midnight belongs to you.";
+  if (position <= 5) return `Race complete. Position ${position}. Smooth run.`;
+  return `Race complete. Position ${position}. The night is not over.`;
+}
 
 function applyLapTheme(lap: number) {
   const theme = stage.themes[Math.min(lap - 1, stage.themes.length - 1)];
@@ -940,6 +993,8 @@ function setPaused(value: boolean) {
 }
 
 function resetRace() {
+  clearTimeout(announcerTimer);
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
   paused = false;
   pauseScreenEl.classList.remove("show");
   settingsScreenEl.classList.remove("show");
@@ -1056,6 +1111,7 @@ function startFinish(now: number) {
   finishBgm.muted = false;
   finishBgm.volume = bgmVolume;
   playFinishBgm();
+  announce(finishAnnouncement(playerPosition()), 550);
   announcementEl.textContent = "FINISH";
   announcementEl.className = "show final";
   skipReplayEl.classList.toggle("show", replaying);
@@ -1326,6 +1382,7 @@ function animate() {
         running = true;
         bgm.volume = bgmVolume;
         void bgm.play().catch(() => {});
+        announce(lapAnnouncement(1, playerPosition()), 520);
       }
     }
     announcementEl.textContent = value;
@@ -1449,12 +1506,14 @@ function animate() {
   const displaySpeed = Math.round(playerSpeed * 3.6);
   speedEl.textContent = String(displaySpeed).padStart(3, "0");
   speedBarEl.style.width = `${speedRatio * 100}%`;
-  positionEl.textContent = String(1 + rivals.filter(rival => rival.progress > playerProgress).length);
+  const position = playerPosition();
+  positionEl.textContent = String(position);
   const lap = Math.min(TOTAL_LAPS, Math.floor(playerProgress) + 1);
   lapEl.textContent = String(lap);
   if (lap !== currentLap) {
     currentLap = lap;
     applyLapTheme(lap);
+    announce(lapAnnouncement(lap, position), lap === TOTAL_LAPS ? 300 : 120);
     if (lap === TOTAL_LAPS) {
       finalLapUntil = now + 3;
       finishBgm.load();
