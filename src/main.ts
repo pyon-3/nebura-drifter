@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import "./style.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
@@ -15,6 +16,12 @@ scene.fog = new THREE.FogExp2(0x05091a, 0.0016);
 const camera = new THREE.PerspectiveCamera(69, innerWidth / innerHeight, 0.1, 1600);
 const clock = new THREE.Clock();
 const up = new THREE.Vector3(0, 1, 0);
+const isMobileDevice = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+let reducedEffects = false;
+let fpsSampleStarted = performance.now();
+let fpsSampleFrames = 0;
+let slowFpsWindows = 0;
+let fastFpsWindows = 0;
 
 const hemisphere = new THREE.HemisphereLight(0xb7caff, 0x1a1e3d, 1.62);
 scene.add(hemisphere);
@@ -497,20 +504,32 @@ const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
 let smokeCursor = 0;
 let lastSmokeEmit = 0;
 
-type FireworkParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number; rocket: boolean };
+type FireworkParticle = { index: number; position: THREE.Vector3; velocity: THREE.Vector3; color: THREE.Color; size: number; life: number; maxLife: number; rocket: boolean };
+const FIREWORK_PARTICLE_COUNT = 700;
+const fireworkPositions = new Float32Array(FIREWORK_PARTICLE_COUNT * 3);
+const fireworkColors = new Float32Array(FIREWORK_PARTICLE_COUNT * 3);
+const fireworkSizes = new Float32Array(FIREWORK_PARTICLE_COUNT);
+const fireworkAlphas = new Float32Array(FIREWORK_PARTICLE_COUNT);
+const fireworkGeometry = new THREE.BufferGeometry();
+fireworkGeometry.setAttribute("position", new THREE.BufferAttribute(fireworkPositions, 3));
+fireworkGeometry.setAttribute("color", new THREE.BufferAttribute(fireworkColors, 3));
+fireworkGeometry.setAttribute("aSize", new THREE.BufferAttribute(fireworkSizes, 1));
+fireworkGeometry.setAttribute("aAlpha", new THREE.BufferAttribute(fireworkAlphas, 1));
+const fireworkMaterial = new THREE.ShaderMaterial({
+  vertexShader: `attribute float aSize;attribute float aAlpha;attribute vec3 color;varying float vAlpha;varying vec3 vColor;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vAlpha=aAlpha;vColor=color;gl_PointSize=aSize*(260.0/max(1.0,-mv.z));gl_Position=projectionMatrix*mv;}`,
+  fragmentShader: `varying float vAlpha;varying vec3 vColor;void main(){float d=length(gl_PointCoord-vec2(.5));float glow=smoothstep(.5,0.0,d);gl_FragColor=vec4(vColor,glow*glow*vAlpha);}`,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  vertexColors: true,
+});
+const fireworkPoints = new THREE.Points(fireworkGeometry, fireworkMaterial);
+fireworkPoints.frustumCulled = false;
+scene.add(fireworkPoints);
 const fireworkParticles: FireworkParticle[] = Array.from({ length: 700 }, (_, i) => {
-  const material = new THREE.SpriteMaterial({
-    map: smokeTexture,
-    color: [0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4],
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const sprite = new THREE.Sprite(material);
-  sprite.visible = false;
-  scene.add(sprite);
-  return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1, rocket: false };
+  const color = new THREE.Color([0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4]);
+  color.toArray(fireworkColors, i * 3);
+  return { index: i, position: new THREE.Vector3(), velocity: new THREE.Vector3(), color, size: 0, life: 0, maxLife: 1, rocket: false };
 });
 let fireworkCursor = 0;
 let lastFirework = 0;
@@ -564,6 +583,39 @@ function makeNumberTexture(rival: boolean) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+function mergeCarBodyParts(car: THREE.Group) {
+  const groups = new Map<THREE.Material, THREE.Mesh[]>();
+  for (const child of [...car.children]) {
+    if (!(child instanceof THREE.Mesh) || Array.isArray(child.material)) continue;
+    const material = child.material;
+    if (material.transparent || material instanceof THREE.ShaderMaterial || "map" in material && material.map) continue;
+    const group = groups.get(material) ?? [];
+    group.push(child);
+    groups.set(material, group);
+  }
+  for (const [material, meshes] of groups) {
+    if (meshes.length < 2) continue;
+    const geometries = meshes.map(mesh => {
+      mesh.updateMatrix();
+      const geometry = mesh.geometry.clone().toNonIndexed();
+      geometry.applyMatrix4(mesh.matrix);
+      for (const name of Object.keys(geometry.attributes)) {
+        if (name !== "position" && name !== "normal") geometry.deleteAttribute(name);
+      }
+      if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+      return geometry;
+    });
+    const merged = mergeGeometries(geometries, false);
+    geometries.forEach(geometry => geometry.dispose());
+    if (!merged) continue;
+    meshes.forEach(mesh => {
+      car.remove(mesh);
+      mesh.geometry.dispose();
+    });
+    car.add(new THREE.Mesh(merged, material));
+  }
 }
 
 function makeCar(bodyColor: number, rival = false) {
@@ -784,6 +836,7 @@ function makeCar(bodyColor: number, rival = false) {
     );
     car.add(beam);
   }
+  mergeCarBodyParts(car);
   return car;
 }
 
@@ -861,6 +914,7 @@ function updateRibbon(
   strength = 1,
   bleed = false,
 ) {
+  if (reducedEffects) return;
   const positions: number[] = [];
   const alphas: number[] = [];
   const indices: number[] = [];
@@ -1609,10 +1663,13 @@ function resetRace() {
     rival.speedMps = 0;
     rival.tailIntensity = 0.45;
   });
-  for (const particle of [...smokeParticles, ...fireworkParticles]) {
+  for (const particle of smokeParticles) {
     particle.life = 0;
     particle.sprite.visible = false;
   }
+  for (const particle of fireworkParticles) particle.life = 0;
+  fireworkAlphas.fill(0);
+  fireworkGeometry.attributes.aAlpha.needsUpdate = true;
   allRaceBgmTracks.forEach(track => {
     track.pause();
     track.currentTime = 0;
@@ -1869,7 +1926,7 @@ function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
   }
 }
 function spawnFirework(frame: ReturnType<typeof placeCar>, now: number) {
-  if (finalLapFireworkCount >= 20) return;
+  if (reducedEffects || finalLapFireworkCount >= 20) return;
   const beatPulse = getBgmPulse();
   if (now - lastFirework < THREE.MathUtils.lerp(0.5, 0.34, beatPulse)) return;
   lastFirework = now;
@@ -1893,9 +1950,8 @@ function burstFirework(center: THREE.Vector3, size = 1) {
     const speed = (8 + Math.random() * 6 + beatPulse * 5) * size;
     particle.life = particle.maxLife = 1.7 + Math.random() * 0.9;
     particle.rocket = false;
-    particle.sprite.visible = true;
-    particle.sprite.position.copy(center);
-    particle.sprite.scale.setScalar((0.34 + Math.random() * 0.3 + beatPulse * 0.18) * size);
+    particle.position.copy(center);
+    particle.size = (0.34 + Math.random() * 0.3 + beatPulse * 0.18) * size;
     particle.velocity.set(Math.cos(angle) * radius * speed, y * speed, Math.sin(angle) * radius * speed);
     updateFireworkColor(particle, beatPulse, hueOffset + Math.floor(i / 12));
   }
@@ -1906,9 +1962,8 @@ function burstFirework(center: THREE.Vector3, size = 1) {
     const speed = (15 + beatPulse * 6) * size;
     particle.life = particle.maxLife = 1.4 + Math.random() * 0.45;
     particle.rocket = false;
-    particle.sprite.visible = true;
-    particle.sprite.position.copy(center);
-    particle.sprite.scale.setScalar((0.48 + beatPulse * 0.2) * size);
+    particle.position.copy(center);
+    particle.size = (0.48 + beatPulse * 0.2) * size;
     particle.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed, (Math.random() - 0.5) * 1.2);
     updateFireworkColor(particle, 1, hueOffset + 18);
   }
@@ -1920,7 +1975,7 @@ function getBgmPulse() {
 }
 function updateFireworkColor(particle: FireworkParticle, pulse: number, offset: number) {
   const hue = (bgm.currentTime * 0.07 + offset * 0.11 + pulse * 0.18) % 1;
-  (particle.sprite.material as THREE.SpriteMaterial).color.setHSL(hue, 0.9, 0.58 + pulse * 0.24);
+  particle.color.setHSL(hue, 0.9, 0.58 + pulse * 0.24);
 }
 function updateEffects(dt: number) {
   for (const particle of smokeParticles) {
@@ -1933,32 +1988,84 @@ function updateEffects(dt: number) {
     (particle.sprite.material as THREE.SpriteMaterial).opacity = Math.sin(Math.min(1, age) * Math.PI) * 0.24;
     if (particle.life <= 0) particle.sprite.visible = false;
   }
+  if (reducedEffects) return;
   for (const particle of fireworkParticles) {
     if (particle.life <= 0) continue;
     particle.life -= dt;
     particle.velocity.y -= (particle.rocket ? 8.5 : 2.6) * dt;
-    particle.sprite.position.addScaledVector(particle.velocity, dt);
-    const material = particle.sprite.material as THREE.SpriteMaterial;
+    particle.position.addScaledVector(particle.velocity, dt);
+    let opacity: number;
     if (particle.rocket) {
       const pulse = getBgmPulse();
-      material.opacity = 0.65 + pulse * 0.35;
-      particle.sprite.scale.setScalar(0.22 + pulse * 0.22);
+      opacity = 0.65 + pulse * 0.35;
+      particle.size = 0.22 + pulse * 0.22;
       updateFireworkColor(particle, pulse, fireworkCursor);
     } else {
       const remaining = Math.max(0, particle.life) / particle.maxLife;
-      material.opacity = Math.min(1, remaining * 1.65) * (0.78 + Math.sin(particle.life * 34) * 0.22);
-      particle.sprite.scale.multiplyScalar(Math.pow(0.84, dt));
+      opacity = Math.min(1, remaining * 1.65) * (0.78 + Math.sin(particle.life * 34) * 0.22);
+      particle.size *= Math.pow(0.84, dt);
     }
+    particle.position.toArray(fireworkPositions, particle.index * 3);
+    particle.color.toArray(fireworkColors, particle.index * 3);
+    fireworkSizes[particle.index] = particle.size * 18;
+    fireworkAlphas[particle.index] = opacity;
     if (particle.life <= 0) {
-      if (particle.rocket) burstFirework(particle.sprite.position.clone());
+      if (particle.rocket) burstFirework(particle.position.clone());
       particle.rocket = false;
+      fireworkAlphas[particle.index] = 0;
+    }
+  }
+  fireworkGeometry.attributes.position.needsUpdate = true;
+  fireworkGeometry.attributes.color.needsUpdate = true;
+  fireworkGeometry.attributes.aSize.needsUpdate = true;
+  fireworkGeometry.attributes.aAlpha.needsUpdate = true;
+}
+
+function setReducedEffects(enabled: boolean) {
+  if (reducedEffects === enabled) return;
+  reducedEffects = enabled;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : 1.7));
+  renderer.setSize(innerWidth, innerHeight);
+  fireworkPoints.visible = !enabled;
+  finalRings.visible = !enabled;
+  for (const particle of smokeParticles) {
+    if (enabled) {
+      particle.life = 0;
       particle.sprite.visible = false;
     }
   }
+  if (enabled) {
+    for (const particle of fireworkParticles) particle.life = 0;
+    fireworkAlphas.fill(0);
+    fireworkGeometry.attributes.aAlpha.needsUpdate = true;
+    samples.length = 0;
+    playerSamples.length = 0;
+    rivalTailSamples.forEach(source => { source.length = 0; });
+  }
+  for (const mesh of [mainLeft, mainRight, bleedLeft, bleedRight, playerMainLeft, playerMainRight, playerBleedLeft, playerBleedRight]) mesh.visible = !enabled;
+  rivalTailMeshes.forEach(meshes => {
+    meshes.left.visible = !enabled;
+    meshes.right.visible = !enabled;
+  });
+}
+
+function monitorMobilePerformance(nowMs: number) {
+  if (!isMobileDevice) return;
+  fpsSampleFrames++;
+  const elapsed = nowMs - fpsSampleStarted;
+  if (elapsed < 2000) return;
+  const fps = fpsSampleFrames * 1000 / elapsed;
+  fpsSampleFrames = 0;
+  fpsSampleStarted = nowMs;
+  slowFpsWindows = fps < 45 ? slowFpsWindows + 1 : 0;
+  fastFpsWindows = fps > 52 ? fastFpsWindows + 1 : 0;
+  if (!reducedEffects && slowFpsWindows >= 2) setReducedEffects(true);
+  if (reducedEffects && fastFpsWindows >= 3) setReducedEffects(false);
 }
 
 function animate() {
   requestAnimationFrame(animate);
+  monitorMobilePerformance(performance.now());
   const dt = Math.min(clock.getDelta(), 0.04);
   const now = performance.now() / 1000;
   if (paused) {
@@ -2045,7 +2152,7 @@ function animate() {
   const playerTailTarget = braking ? 1 : accelerating ? 0.42 : 0.68;
   playerTailIntensity = THREE.MathUtils.lerp(playerTailIntensity, playerTailTarget, 1 - Math.pow(0.001, dt));
   updateTailLights(playerCar, playerTailIntensity, dt);
-  if (running && drifting) emitDriftSmoke(playerFrame, now);
+  if (!reducedEffects && running && drifting) emitDriftSmoke(playerFrame, now);
   if (running && currentLap === TOTAL_LAPS) spawnFirework(playerFrame, now);
   updateEffects(dt);
   let leadFrame = trackFrame(0);
@@ -2084,7 +2191,7 @@ function animate() {
     landmarkRing.rotation.y += dt * 0.08;
   }
 
-  if (now - lastEmit > 0.035) {
+  if (!reducedEffects && now - lastEmit > 0.035) {
     lastEmit = now;
     const rear = leadFrame.point.clone().addScaledVector(leadFrame.tangent, -1.78).addScaledVector(leadFrame.normal, 0.56);
     samples.push({
@@ -2095,7 +2202,7 @@ function animate() {
       born: now,
     });
   }
-  if (now - lastPlayerEmit > (replaying ? 0.018 : 0.028)) {
+  if (!reducedEffects && now - lastPlayerEmit > (replaying ? 0.018 : 0.028)) {
     lastPlayerEmit = now;
     const rear = playerFrame.point.clone().addScaledVector(playerFrame.tangent, -1.8).addScaledVector(playerFrame.normal, 0.56);
     playerSamples.push({
@@ -2202,6 +2309,6 @@ animate();
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, reducedEffects ? 1.1 : 1.7));
   renderer.setSize(innerWidth, innerHeight);
 });
