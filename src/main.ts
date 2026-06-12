@@ -90,6 +90,114 @@ function addWireEnvironment() {
   stageGroup.add(landmarkRing);
 }
 
+function addAdvancedEnvironment() {
+  if (stage.id !== "blue-neon-shift") return;
+
+  const buildingColors = [0x10182a, 0x17142b, 0x101f2d, 0x24152c];
+  const windowColors = [0x46eaff, 0xff4e9b, 0x8568ff, 0xffd95c];
+  const citySections: [number, number][] = [[0.015, 0.19], [0.49, 0.7], [0.78, 0.91]];
+  let buildingIndex = 0;
+  for (const [start, end] of citySections) {
+    const count = Math.round((end - start) * 120);
+    for (let i = 0; i < count; i++) {
+      const u = THREE.MathUtils.lerp(start, end, i / Math.max(1, count - 1));
+      const f = trackFrame(u);
+      for (const side of [-1, 1]) {
+        const seed = buildingIndex * 17 + (side > 0 ? 11 : 3);
+        const width = 5 + (seed * 7 % 9);
+        const depth = 5 + (seed * 13 % 11);
+        const height = 12 + (seed * 19 % 38);
+        const offset = TRACK_WIDTH * 0.5 + 7 + (seed * 5 % 12);
+        const building = new THREE.Mesh(
+          new THREE.BoxGeometry(width, height, depth),
+          new THREE.MeshStandardMaterial({
+            color: buildingColors[seed % buildingColors.length],
+            roughness: 0.76,
+            metalness: 0.24,
+            flatShading: true,
+          }),
+        );
+        building.position.copy(f.point).addScaledVector(f.right, side * offset);
+        building.position.y += height * 0.5 - 0.4;
+        building.rotation.y = Math.atan2(f.tangent.x, f.tangent.z);
+        stageGroup.add(building);
+
+        for (let floor = 0; floor < Math.min(7, Math.floor(height / 5)); floor++) {
+          const windows = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.68, 0.18, depth + 0.025),
+            new THREE.MeshBasicMaterial({
+              color: windowColors[(seed + floor) % windowColors.length],
+              transparent: true,
+              opacity: 0.48,
+            }),
+          );
+          windows.position.copy(building.position);
+          windows.position.y = f.point.y + 2.4 + floor * 4.3;
+          windows.rotation.y = building.rotation.y;
+          stageGroup.add(windows);
+        }
+      }
+      buildingIndex++;
+    }
+  }
+
+  const tunnelWallMat = new THREE.MeshStandardMaterial({ color: 0x0b111c, roughness: 0.82, metalness: 0.3, flatShading: true });
+  const tunnelRoofMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7, metalness: 0.42, flatShading: true });
+  const tunnelLightMats = [
+    new THREE.MeshBasicMaterial({ color: 0x52efff }),
+    new THREE.MeshBasicMaterial({ color: 0xff3d91 }),
+  ];
+  const tunnelStart = 0.285;
+  const tunnelEnd = 0.405;
+  const tunnelSegments = 34;
+  for (let i = 0; i <= tunnelSegments; i++) {
+    const u = THREE.MathUtils.lerp(tunnelStart, tunnelEnd, i / tunnelSegments);
+    const f = trackFrame(u);
+    const basis = new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent);
+    for (const side of [-1, 1]) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.55, 6.8, 11.5), tunnelWallMat);
+      wall.position.copy(f.point).addScaledVector(f.right, side * 6.65).addScaledVector(f.normal, 3.25);
+      wall.quaternion.setFromRotationMatrix(basis);
+      stageGroup.add(wall);
+    }
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(13.8, 0.5, 11.5), tunnelRoofMat);
+    roof.position.copy(f.point).addScaledVector(f.normal, 6.55);
+    roof.quaternion.setFromRotationMatrix(basis);
+    stageGroup.add(roof);
+
+    if (i % 2 === 0) {
+      const rib = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(13.1, 6.1, 0.14)),
+        new THREE.LineBasicMaterial({
+          color: i % 4 === 0 ? 0x53efff : 0xff4f9e,
+          transparent: true,
+          opacity: 0.72,
+        }),
+      );
+      rib.position.copy(f.point).addScaledVector(f.normal, 3.25);
+      rib.quaternion.setFromRotationMatrix(basis);
+      stageGroup.add(rib);
+    }
+    for (const side of [-1, 1]) {
+      const light = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 9.5), tunnelLightMats[(i + (side > 0 ? 1 : 0)) % 2]);
+      light.position.copy(f.point).addScaledVector(f.right, side * 4.6).addScaledVector(f.normal, 6.23);
+      light.quaternion.setFromRotationMatrix(basis);
+      stageGroup.add(light);
+    }
+  }
+
+  for (const u of [tunnelStart, tunnelEnd]) {
+    const f = trackFrame(u);
+    const portal = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(14.4, 7.4, 0.7)),
+      new THREE.LineBasicMaterial({ color: 0xff4b9b, transparent: true, opacity: 0.9 }),
+    );
+    portal.position.copy(f.point).addScaledVector(f.normal, 3.45);
+    portal.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
+    stageGroup.add(portal);
+  }
+}
+
 type LapTheme = { sky: number; fog: number; grid: number; opacity: number };
 type StageConfig = {
   id: string;
@@ -289,6 +397,7 @@ function makeRoad() {
 }
 makeRoad();
 addWireEnvironment();
+addAdvancedEnvironment();
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
@@ -1367,6 +1476,7 @@ function switchStage(index: number) {
     configureStage(nextStage);
     makeRoad();
     addWireEnvironment();
+    addAdvancedEnvironment();
     floor.position.y = TRACK_FLOOR_Y;
     grid.position.y = TRACK_FLOOR_Y + 0.04;
     stageGroup.add(floor, grid);
