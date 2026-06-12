@@ -16,7 +16,7 @@ const debugFlags = {
   noSprites: debugFlag("nosprites"),
   mobileSafe: debugFlag("mobileSafe"),
 };
-const useMobileSafe = isMobile || debugFlags.mobileSafe;
+const useMobileSafe = debugParams.has("mobileSafe") ? debugFlags.mobileSafe : isMobile;
 const disableGlow = debugFlags.noGlow || useMobileSafe;
 const disableTrail = debugFlags.noTrail;
 const disableBleed = debugFlags.noBleed || useMobileSafe;
