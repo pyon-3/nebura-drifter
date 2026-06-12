@@ -23,7 +23,9 @@
       <div id="status">CHASE THE AFTERIMAGE</div>
       <div id="announcement"></div>
       <button id="skipReplay">SKIP REPLAY</button>
+      <button id="restartRace">RESTART</button>
       <button id="audioToggle" aria-label="Settings">SETTINGS</button>
+      <button id="pauseButton" aria-label="Pause">PAUSE</button>
       <div id="steering">
         <div id="steeringKnob"></div>
         <small>STEER</small>
@@ -39,6 +41,13 @@
         <label><span>BGM VOLUME <output id="bgmValue">68</output></span><input id="bgmVolume" type="range" min="0" max="100" value="68" /></label>
         <label><span>SFX VOLUME <output id="sfxValue">48</output></span><input id="sfxVolume" type="range" min="0" max="100" value="48" /></label>
         <small>Settings are saved on this device.</small>
+      </div>
+    </div>
+    <div id="pauseScreen">
+      <div class="pause-card">
+        <b>PAUSED</b>
+        <button id="resumeButton">RESUME</button>
+        <button id="restartButton">RESTART RACE</button>
       </div>
     </div>
     <div id="title">

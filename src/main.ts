@@ -447,6 +447,10 @@ let replaying = false;
 let replayStart = 0;
 let replayCursor = 0;
 let finishHandled = false;
+let paused = false;
+let pauseStarted = 0;
+let resumeBgm = false;
+let resumeFinishBgm = false;
 let steer = 0;
 let steeringPointerId: number | null = null;
 let playerProgress = 0;
@@ -472,6 +476,7 @@ const lapEl = document.querySelector("#lap")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
 const announcementEl = document.querySelector<HTMLElement>("#announcement")!;
 const skipReplayEl = document.querySelector<HTMLButtonElement>("#skipReplay")!;
+const restartRaceEl = document.querySelector<HTMLButtonElement>("#restartRace")!;
 const steeringEl = document.querySelector<HTMLElement>("#steering")!;
 const steeringKnobEl = document.querySelector<HTMLElement>("#steeringKnob")!;
 const gasEl = document.querySelector<HTMLButtonElement>("#gas")!;
@@ -479,6 +484,10 @@ const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
 const bgm = document.querySelector<HTMLAudioElement>("#bgm")!;
 const finishBgm = document.querySelector<HTMLAudioElement>("#finishBgm")!;
 const audioToggleEl = document.querySelector<HTMLButtonElement>("#audioToggle")!;
+const pauseButtonEl = document.querySelector<HTMLButtonElement>("#pauseButton")!;
+const pauseScreenEl = document.querySelector<HTMLElement>("#pauseScreen")!;
+const resumeButtonEl = document.querySelector<HTMLButtonElement>("#resumeButton")!;
+const restartButtonEl = document.querySelector<HTMLButtonElement>("#restartButton")!;
 const settingsScreenEl = document.querySelector<HTMLElement>("#settingsScreen")!;
 const closeSettingsEl = document.querySelector<HTMLButtonElement>("#closeSettings")!;
 const bgmVolumeEl = document.querySelector<HTMLInputElement>("#bgmVolume")!;
@@ -522,6 +531,29 @@ function applyLapTheme(lap: number) {
   });
 }
 applyLapTheme(1);
+
+function resetVisualTheme() {
+  renderer.toneMappingExposure = 2.38;
+  hemisphere.intensity = 1.62;
+  hemisphere.color.setHex(0xb7caff);
+  moon.intensity = 2.18;
+  moon.color.setHex(0xe1fbff);
+  wireMaterials.forEach((material, i) => {
+    material.color.setHex(i === 0 ? 0x70f2ff : 0xc997ff);
+    material.opacity = i === 0 ? 0.46 : 0.38;
+  });
+  gateMaterials.forEach((material, i) => {
+    material.color.setHex(i % 3 === 0 ? 0xff6a95 : 0x75f3ff);
+    material.opacity = 0.55;
+  });
+  starMaterial.color.setHex(0x9ac7ff);
+  starMaterial.opacity = 0.55;
+  starMaterial.size = 1.15;
+  finalRingMaterials.forEach(material => { material.opacity = 0; });
+  announcementEl.style.filter = "";
+  announcementEl.style.transform = "";
+  applyLapTheme(1);
+}
 
 const finalSkyColor = new THREE.Color();
 const finalFogColor = new THREE.Color();
@@ -720,7 +752,9 @@ steeringEl.addEventListener("pointercancel", releaseSteering);
 const keys = new Set<string>();
 addEventListener("keydown", e => {
   if (replaying && e.code === "Escape") { endReplay(); return; }
+  if (e.code === "Escape" && armed && !finishHandled) { setPaused(!paused); return; }
   keys.add(e.code);
+  if (paused) return;
   if (e.code === "ArrowUp" || e.code === "KeyW") requestStart(); else arm();
 });
 addEventListener("keyup", e => keys.delete(e.code));
@@ -734,6 +768,13 @@ function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
 bindPedal(gasEl, value => { touchGas = value; });
 bindPedal(brakeEl, value => { touchBrake = value; });
 skipReplayEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); endReplay(); });
+restartRaceEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); restartRace(); });
+pauseButtonEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); setPaused(true); });
+resumeButtonEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); setPaused(false); });
+restartButtonEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); restartRace(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && (running || countdownEnd > 0 || replaying)) setPaused(true);
+});
 audioToggleEl.addEventListener("pointerdown", e => {
   e.stopPropagation();
   settingsScreenEl.classList.add("show");
@@ -755,6 +796,101 @@ sfxVolumeEl.addEventListener("input", () => {
   localStorage.setItem("nebura-sfx-volume", sfxVolumeEl.value);
 });
 
+function setPaused(value: boolean) {
+  if (value === paused || !armed || finishHandled) return;
+  paused = value;
+  if (paused) {
+    pauseStarted = performance.now() / 1000;
+    resumeBgm = !bgm.paused;
+    resumeFinishBgm = !finishBgm.paused;
+    bgm.pause();
+    finishBgm.pause();
+    void audioContext?.suspend();
+    touchGas = false;
+    touchBrake = false;
+    gasEl.classList.remove("active");
+    brakeEl.classList.remove("active");
+    pauseScreenEl.classList.add("show");
+  } else {
+    const pauseDuration = performance.now() / 1000 - pauseStarted;
+    if (countdownEnd > 0) countdownEnd += pauseDuration;
+    if (replaying) replayStart += pauseDuration;
+    if (finalLapUntil > 0) finalLapUntil += pauseDuration;
+    lastEmit += pauseDuration;
+    lastPlayerEmit += pauseDuration;
+    lastReplayCapture += pauseDuration;
+    lastFirework += pauseDuration;
+    void audioContext?.resume();
+    if (resumeBgm) void bgm.play().catch(() => {});
+    if (resumeFinishBgm) playFinishBgm();
+    pauseScreenEl.classList.remove("show");
+    clock.getDelta();
+  }
+}
+
+function resetRace() {
+  paused = false;
+  pauseScreenEl.classList.remove("show");
+  settingsScreenEl.classList.remove("show");
+  running = false;
+  replaying = false;
+  finishHandled = false;
+  countdownEnd = 0;
+  lastCountdownValue = "";
+  currentLap = 1;
+  finalLapUntil = 0;
+  replayStart = 0;
+  replayCursor = 0;
+  playerProgress = 0;
+  playerSpeed = 0;
+  lane = 0;
+  lateralVelocity = 0;
+  yawError = 0;
+  yawRate = 0;
+  steerAngle = 0;
+  longitudinalAccel = 0;
+  steer = 0;
+  score = 0;
+  touchGas = false;
+  touchBrake = false;
+  driftState = "grip";
+  driftDirection = 0;
+  driftStateTime = 0;
+  gasReleaseTime = 0;
+  previousAccelerating = false;
+  neutralSteerTime = 0;
+  replayFrames.length = 0;
+  samples.length = 0;
+  playerSamples.length = 0;
+  rivals.forEach((rival, i) => {
+    rival.progress = 0.045 - i * 0.014;
+    rival.speedMps = 0;
+  });
+  for (const particle of [...smokeParticles, ...fireworkParticles]) {
+    particle.life = 0;
+    particle.sprite.visible = false;
+  }
+  bgm.pause();
+  bgm.currentTime = 0;
+  finishBgm.pause();
+  finishBgm.currentTime = 0;
+  skipReplayEl.classList.remove("show");
+  restartRaceEl.classList.remove("show");
+  announcementEl.className = "";
+  announcementEl.textContent = "";
+  statusEl.style.opacity = "0";
+  steeringKnobEl.style.transform = "translateX(0)";
+  steeringEl.classList.remove("active");
+  gasEl.classList.remove("active");
+  brakeEl.classList.remove("active");
+  resetVisualTheme();
+}
+
+function restartRace() {
+  resetRace();
+  requestStart();
+}
+
 function startFinish(now: number) {
   if (finishHandled) return;
   finishHandled = true;
@@ -773,10 +909,12 @@ function startFinish(now: number) {
   announcementEl.textContent = "FINISH";
   announcementEl.className = "show final";
   skipReplayEl.classList.toggle("show", replaying);
+  restartRaceEl.classList.add("show");
 }
 function endReplay() {
   replaying = false;
   skipReplayEl.classList.remove("show");
+  restartRaceEl.classList.add("show");
   announcementEl.textContent = "FINISH";
   announcementEl.className = "show final";
 }
@@ -1021,6 +1159,10 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.04);
   const now = performance.now() / 1000;
+  if (paused) {
+    renderer.render(scene, camera);
+    return;
+  }
   const keySteer = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
   const accelerating = touchGas || keys.has("ArrowUp") || keys.has("KeyW");
   const braking = touchBrake || keys.has("ArrowDown") || keys.has("KeyS");
