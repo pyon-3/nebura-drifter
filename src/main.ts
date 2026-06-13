@@ -82,7 +82,95 @@ let stageGroup = new THREE.Group();
 let landmarkRing: THREE.Mesh | null = null;
 scene.add(stageGroup);
 
+function addQuietLakeEnvironment() {
+  const treePositions: number[] = [];
+  const addSegment = (a: THREE.Vector3, b: THREE.Vector3) => {
+    treePositions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  };
+  for (let i = 0; i < 112; i++) {
+    const f = trackFrame(i / 112);
+    const side = i % 2 ? 1 : -1;
+    const offset = TRACK_WIDTH * 0.5 + 10 + (i * 17 % 24);
+    const base = f.point.clone().addScaledVector(f.right, side * offset).addScaledVector(f.normal, 0.08);
+    const height = 5.5 + (i * 13 % 9);
+    const trunkTop = base.clone().addScaledVector(f.normal, height * 0.42);
+    addSegment(base, trunkTop);
+    for (let tier = 0; tier < 3; tier++) {
+      const tierY = height * (0.38 + tier * 0.2);
+      const radius = height * (0.34 - tier * 0.075);
+      const center = base.clone().addScaledVector(f.normal, tierY);
+      const apex = base.clone().addScaledVector(f.normal, tierY + height * 0.3);
+      const ring: THREE.Vector3[] = [];
+      for (let j = 0; j < 6; j++) {
+        const angle = j / 6 * Math.PI * 2;
+        ring.push(center.clone().addScaledVector(f.right, Math.cos(angle) * radius).addScaledVector(f.tangent, Math.sin(angle) * radius));
+      }
+      for (let j = 0; j < ring.length; j++) {
+        addSegment(ring[j], ring[(j + 1) % ring.length]);
+        addSegment(ring[j], apex);
+      }
+    }
+  }
+  const treeMaterial = new THREE.LineBasicMaterial({ color: 0x58b5a1, transparent: true, opacity: 0.58 });
+  wireMaterials.push(treeMaterial);
+  const trees = new THREE.LineSegments(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(treePositions, 3)),
+    treeMaterial,
+  );
+  trees.name = "quiet-lake-wire-trees";
+  stageGroup.add(trees);
+
+  const sampled = oval.getSpacedPoints(192);
+  const bounds = new THREE.Box3().setFromPoints(sampled);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const lakeY = TRACK_FLOOR_Y + 0.075;
+  const lakePositions: number[] = [];
+  const addLakeSegment = (ax: number, az: number, bx: number, bz: number) => {
+    lakePositions.push(ax, lakeY, az, bx, lakeY, bz);
+  };
+  for (let ring = 0; ring < 15; ring++) {
+    const scale = 0.22 + ring * 0.035;
+    const radiusX = size.x * scale;
+    const radiusZ = size.z * scale * 0.7;
+    for (let i = 0; i < 96; i++) {
+      const a = i / 96 * Math.PI * 2;
+      const b = (i + 1) / 96 * Math.PI * 2;
+      const rippleA = Math.sin(a * 5 + ring * 0.8) * (1.4 + ring * 0.08);
+      const rippleB = Math.sin(b * 5 + ring * 0.8) * (1.4 + ring * 0.08);
+      addLakeSegment(
+        center.x + Math.cos(a) * (radiusX + rippleA),
+        center.z + Math.sin(a) * (radiusZ + rippleA),
+        center.x + Math.cos(b) * (radiusX + rippleB),
+        center.z + Math.sin(b) * (radiusZ + rippleB),
+      );
+    }
+  }
+  for (let row = -8; row <= 8; row++) {
+    const z = center.z + row * size.z * 0.027;
+    const halfWidth = size.x * (0.26 + Math.cos(row * 0.34) * 0.035);
+    for (let i = 0; i < 28; i++) {
+      const ax = center.x - halfWidth + i / 28 * halfWidth * 2;
+      const bx = center.x - halfWidth + (i + 1) / 28 * halfWidth * 2;
+      addLakeSegment(ax, z + Math.sin(i * 0.9 + row) * 0.8, bx, z + Math.sin((i + 1) * 0.9 + row) * 0.8);
+    }
+  }
+  const lakeMaterial = new THREE.LineBasicMaterial({ color: 0x65d7dd, transparent: true, opacity: 0.32, depthWrite: false });
+  wireMaterials.push(lakeMaterial);
+  const lake = new THREE.LineSegments(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(lakePositions, 3)),
+    lakeMaterial,
+  );
+  lake.name = "quiet-lake-wire-water";
+  stageGroup.add(lake);
+}
+
 function addWireEnvironment() {
+  if (stage.id === "quiet-lake") {
+    addQuietLakeEnvironment();
+    landmarkRing = null;
+    return;
+  }
   const city = new THREE.Group();
   const cyan = new THREE.LineBasicMaterial({ color: 0x70f2ff, transparent: true, opacity: 0.46 });
   const violet = new THREE.LineBasicMaterial({ color: 0xc997ff, transparent: true, opacity: 0.38 });
