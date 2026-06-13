@@ -784,7 +784,9 @@ function mergeCarBodyParts(car: THREE.Group) {
   }
 }
 
-function makeCar(bodyColor: number, rival = false) {
+type CarType = "grip" | "drift";
+
+function makeCar(bodyColor: number, rival = false, carType: CarType = "grip") {
   const car = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.34, metalness: 0.68, flatShading: true });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x09131d, roughness: 0.5, metalness: 0.72, flatShading: true });
@@ -1018,11 +1020,33 @@ function makeCar(bodyColor: number, rival = false) {
     beam.visible = !disableGlow;
     car.add(beam);
   }
+  if (carType === "grip") {
+    const roofFin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.68), trimMat);
+    roofFin.position.set(0, 1.28, -0.58);
+    roofFin.rotation.x = -0.12;
+    car.add(roofFin);
+    car.scale.set(0.96, 1.04, 1);
+  } else if (carType === "drift") {
+    const aeroMat = new THREE.MeshBasicMaterial({ color: rival ? 0xffd744 : 0xff3157 });
+    for (const x of [-1.02, 1.02]) {
+      const canard = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.44), aeroMat);
+      canard.position.set(x, 0.25, 1.52);
+      canard.rotation.y = x < 0 ? -0.24 : 0.24;
+      car.add(canard);
+    }
+    const driftWing = new THREE.Mesh(new THREE.BoxGeometry(2.12, 0.055, 0.46), aeroMat);
+    driftWing.position.set(0, 1.28, -1.5);
+    driftWing.rotation.x = -0.12;
+    car.add(driftWing);
+    car.scale.set(1.08, 0.92, 1.04);
+  }
+  car.userData.carType = carType;
   mergeCarBodyParts(car);
   return car;
 }
 
-const playerCar = makeCar(0x0a5164);
+let selectedCarType: CarType = "grip";
+let playerCar = makeCar(0x0a5164, false, selectedCarType);
 scene.add(playerCar);
 const ghostCar = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.82, 0.72, 3.25)),
@@ -1030,13 +1054,15 @@ const ghostCar = new THREE.LineSegments(
 );
 ghostCar.visible = false;
 scene.add(ghostCar);
-type Rival = { car: THREE.Group; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
+type Rival = { car: THREE.Group; carType: CarType; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
 const rivalColors = [0x171424, 0x42203e, 0x112c4a, 0x3f1623, 0x153d39, 0x422b12, 0x292044];
 const rivals: Rival[] = rivalColors.map((color, i) => {
-  const car = makeCar(color, true);
+  const carType: CarType = i % 3 === 0 ? "drift" : "grip";
+  const car = makeCar(color, true, carType);
   scene.add(car);
   return {
     car,
+    carType,
     progress: 0.045 - i * 0.014,
     lane: (i % 2 ? 1 : -1) * (0.65 + (i % 3) * 0.65),
     speedMps: 0,
@@ -1231,6 +1257,7 @@ let playerTailIntensity = 0.45;
 let lastEmit = 0;
 let lastPlayerEmit = 0;
 let lastReplayCapture = 0;
+let lastRivalCollision = -10;
 type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number; yawError: number; yawRate: number };
 const replayFrames: ReplayFrame[] = [];
 type GhostFrame = { time: number; progress: number; lane: number; yaw: number };
@@ -1288,6 +1315,7 @@ const enterGridEl = document.querySelector<HTMLButtonElement>("#enterGrid")!;
 const backToTitleEl = document.querySelector<HTMLButtonElement>("#backToTitle")!;
 const stageCards = [...document.querySelectorAll<HTMLButtonElement>(".stage-card")];
 const timeCards = [...document.querySelectorAll<HTMLButtonElement>(".time-card")];
+const carCards = [...document.querySelectorAll<HTMLButtonElement>(".car-card")];
 let touchGas = false;
 let touchBrake = false;
 let audioContext: AudioContext | null = null;
@@ -1721,6 +1749,15 @@ timeCards.forEach(card => {
     resetVisualTheme();
   });
 });
+carCards.forEach(card => {
+  card.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    selectedCarType = card.dataset.car === "drift" ? "drift" : "grip";
+    carCards.forEach(item => item.classList.toggle("selected", item === card));
+    applySelectedCarType();
+  });
+});
 enterGridEl.addEventListener("pointerdown", e => {
   e.stopPropagation();
   e.preventDefault();
@@ -1894,6 +1931,7 @@ function resetRace() {
   replayFrames.length = 0;
   lapFrames.length = 0;
   lapStartedAt = 0;
+  lastRivalCollision = -10;
   wasOffRoad = false;
   previousDriftState = "grip";
   ghostCar.visible = Boolean(bestLap?.frames.length);
@@ -2020,7 +2058,7 @@ function placeCar(car: THREE.Group, u: number, offset: number, slip = 0, roll = 
   return { point: f.point, tangent, right, normal: f.normal };
 }
 
-const vehicle = {
+const gripVehicle = {
   mass: 1200,
   inertia: 2050,
   frontAxle: 1.25,
@@ -2036,6 +2074,37 @@ const vehicle = {
   aerodynamicDrag: 0.22,
   maxSteer: 0.44,
 };
+const driftVehicle = {
+  ...gripVehicle,
+  mass: 1160,
+  inertia: 1880,
+  frontCornerStiffness: 68000,
+  rearCornerStiffness: 61000,
+  frontGrip: 1.3,
+  rearGrip: 1.14,
+  engineForce: 9700,
+  brakeForce: 14800,
+  aerodynamicDrag: 0.24,
+  maxSteer: 0.52,
+};
+const vehicle = { ...gripVehicle };
+
+function applySelectedCarType() {
+  Object.assign(vehicle, selectedCarType === "drift" ? driftVehicle : gripVehicle);
+  const replacement = makeCar(selectedCarType === "drift" ? 0x7b183d : 0x0a5164, false, selectedCarType);
+  replacement.position.copy(playerCar.position);
+  replacement.quaternion.copy(playerCar.quaternion);
+  scene.add(replacement);
+  scene.remove(playerCar);
+  playerCar.traverse(object => {
+    if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
+    if (object instanceof THREE.Mesh) object.geometry.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.forEach(material => material.dispose());
+  });
+  playerCar = replacement;
+  patchEffectTexturesAndVisibility();
+}
 
 type DriftState = "grip" | "entry" | "hold" | "recovery";
 let driftState: DriftState = "grip";
@@ -2047,12 +2116,13 @@ let neutralSteerTime = 0;
 
 function updateArcadeDrift(dt: number, accelerating: boolean, braking: boolean) {
   const speedKmh = playerSpeed * 3.6;
-  const turned = Math.abs(steer) > 0.34;
+  const driftCar = selectedCarType === "drift";
+  const turned = Math.abs(steer) > (driftCar ? 0.26 : 0.34);
   const gasSnap = accelerating && !previousAccelerating && gasReleaseTime > 0.06 && gasReleaseTime < 0.42;
   if (!accelerating) gasReleaseTime = Math.min(1, gasReleaseTime + dt);
   else if (!gasSnap) gasReleaseTime = 0;
 
-  if (driftState === "grip" && speedKmh > 100 && turned && (braking || gasSnap)) {
+  if (driftState === "grip" && speedKmh > (driftCar ? 78 : 100) && turned && (braking || gasSnap || driftCar && accelerating)) {
     driftState = "entry";
     driftDirection = -Math.sign(steer);
     driftStateTime = 0;
@@ -2061,7 +2131,7 @@ function updateArcadeDrift(dt: number, accelerating: boolean, braking: boolean) 
 
   driftStateTime += dt;
   if (driftState === "entry") {
-    const target = driftDirection * THREE.MathUtils.lerp(0.3, 0.42, Math.abs(steer));
+    const target = driftDirection * THREE.MathUtils.lerp(driftCar ? 0.34 : 0.3, driftCar ? 0.5 : 0.42, Math.abs(steer));
     yawError = THREE.MathUtils.lerp(yawError, target, 1 - Math.pow(0.003, dt));
     lateralVelocity = THREE.MathUtils.lerp(lateralVelocity, Math.sin(target) * playerSpeed * 0.45, 1 - Math.pow(0.02, dt));
     if (driftStateTime > 0.2) {
@@ -2069,12 +2139,12 @@ function updateArcadeDrift(dt: number, accelerating: boolean, braking: boolean) 
       driftStateTime = 0;
     }
   } else if (driftState === "hold") {
-    const target = driftDirection * THREE.MathUtils.lerp(0.32, 0.48, Math.abs(steer));
+    const target = driftDirection * THREE.MathUtils.lerp(driftCar ? 0.38 : 0.32, driftCar ? 0.58 : 0.48, Math.abs(steer));
     yawError = THREE.MathUtils.lerp(yawError, target, 1 - Math.pow(0.11, dt));
     lateralVelocity = THREE.MathUtils.lerp(lateralVelocity, Math.sin(target) * playerSpeed * 0.5, 1 - Math.pow(0.18, dt));
     neutralSteerTime = Math.abs(steer) < 0.14 ? neutralSteerTime + dt : 0;
     const counterSteering = Math.sign(steer) === driftDirection && Math.abs(steer) > 0.32;
-    if (counterSteering || neutralSteerTime > 0.5 || driftStateTime > 3.2 || speedKmh < 72) {
+    if (counterSteering || neutralSteerTime > (driftCar ? 0.7 : 0.5) || driftStateTime > (driftCar ? 4.2 : 3.2) || speedKmh < (driftCar ? 58 : 72)) {
       driftState = "recovery";
       driftStateTime = 0;
     }
@@ -2154,6 +2224,32 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   }
   lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.7, TRACK_WIDTH * 0.7);
   return { frontSlip, rearSlip, offRoad };
+}
+
+function resolveRivalCollisions(now: number) {
+  if (!running || replaying || now - lastRivalCollision < 0.22) return;
+  for (const rival of rivals) {
+    let progressDelta = rival.progress - playerProgress;
+    progressDelta -= Math.round(progressDelta);
+    const longitudinalDistance = progressDelta * TRACK_LENGTH_METERS;
+    const lateralDistance = rival.lane - lane;
+    const halfLength = selectedCarType === "drift" ? 2.05 : 1.9;
+    const halfWidth = selectedCarType === "drift" ? 1.14 : 1.02;
+    if (Math.abs(longitudinalDistance) > halfLength * 2 || Math.abs(lateralDistance) > halfWidth * 1.75) continue;
+    const side = Math.abs(lateralDistance) > 0.12 ? -Math.sign(lateralDistance) : Math.sign(steer || 1);
+    const overlap = 1 - Math.abs(lateralDistance) / (halfWidth * 1.75);
+    lane += side * (0.28 + overlap * 0.34);
+    lateralVelocity += side * (2.2 + overlap * 2.8);
+    yawError += side * (selectedCarType === "drift" ? 0.055 : 0.035);
+    const impactSpeed = Math.max(0, playerSpeed - rival.speedMps);
+    playerSpeed *= longitudinalDistance > 0 ? THREE.MathUtils.clamp(0.78 - impactSpeed * 0.004, 0.58, 0.78) : 0.88;
+    rival.speedMps *= longitudinalDistance < 0 ? 0.76 : 0.9;
+    rival.lane = THREE.MathUtils.clamp(rival.lane - side * 0.2, -TRACK_WIDTH * 0.42, TRACK_WIDTH * 0.42);
+    lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.68, TRACK_WIDTH * 0.68);
+    lastRivalCollision = now;
+    haptic([18, 22, 18]);
+    return;
+  }
 }
 
 function emitDriftSmoke(frame: ReturnType<typeof placeCar>, now: number) {
@@ -2424,6 +2520,7 @@ function animate() {
     updateTailLights(rival.car, rival.tailIntensity, dt, distanceScale);
     if (i === 0) leadFrame = frame;
   });
+  resolveRivalCollisions(now);
   const playerMap = minimapPoint(playerProgress);
   const leadMap = minimapPoint(Math.max(...rivals.map(rival => rival.progress)));
   minimapPlayerEl.setAttribute("cx", String(playerMap.x));

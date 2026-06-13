@@ -50,7 +50,7 @@ button{border:1px solid #75edff88;background:#07101bbb;color:#d8fbff;padding:13p
 #title,#courseSelect{background:linear-gradient(120deg,#02030a33,#090713b5 72%)}
 h1{text-align:left;font-weight:300;font-style:italic;letter-spacing:-.1em;color:#f4efe7;text-shadow:0 0 25px #ffb35c45;border-left:1px solid var(--amber);padding-left:18px}
 h1 b{font-weight:800;color:var(--amber);text-shadow:0 0 28px #ff8f3866}
-#timeSelect{display:flex;gap:7px;margin:4px 0 25px;pointer-events:auto}.time-card{min-width:90px;padding:8px 16px;opacity:.45}.time-card.selected{opacity:1;color:var(--amber);border-color:var(--amber)}
+#timeSelect,#carSelect{display:flex;gap:7px;margin:4px 0 12px;pointer-events:auto}.time-card,.car-card{min-width:90px;padding:8px 16px;opacity:.45}.time-card.selected,.car-card.selected{opacity:1;color:var(--amber);border-color:var(--amber)}.car-card{display:flex;flex-direction:column;gap:4px}.car-card small{margin:0!important;font-size:6px!important}
 #stageSelect{margin:-12px 0 20px}.stage-card{padding:14px 10px;text-align:left;border-width:1px 0 0}.stage-card.selected{border-color:var(--amber);background:linear-gradient(120deg,#24160dcc,transparent);box-shadow:none}.stage-card b{font-size:10px;font-style:italic}
 button{border-color:var(--line);background:var(--panel);color:var(--ink);font-family:"Avenir Next Condensed","Trebuchet MS","Segoe UI",sans-serif;font-style:italic;letter-spacing:.12em;box-shadow:none}
 .dusk{--amber:#ffb06a;--line:#ffb06a70;--panel:#24130dcc}.dusk #title,.dusk #courseSelect{background:linear-gradient(120deg,#24152a33,#170b12c9 72%)}.dusk #minimapTrack{stroke:#ffb06a88}.dusk #radioCall{border-left-color:var(--amber)}
