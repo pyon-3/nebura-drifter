@@ -267,6 +267,7 @@ type StageConfig = {
   laps: number;
   aiTopSpeedBaseKmh: number;
   bgmIndex: number;
+  trackName: string;
   beatRate: number;
   themes: LapTheme[];
 };
@@ -288,6 +289,7 @@ const STAGES: StageConfig[] = [{
   laps: 5,
   aiTopSpeedBaseKmh: 218,
   bgmIndex: 0,
+  trackName: "NEBURA DRIFTER",
   beatRate: 2.05,
   themes: [
     { sky: 0x09112c, fog: 0x09112c, grid: 0x246f91, opacity: 0.16 },
@@ -312,6 +314,7 @@ const STAGES: StageConfig[] = [{
   laps: 4,
   aiTopSpeedBaseKmh: 210,
   bgmIndex: 1,
+  trackName: "MIDNIGHT RUN REMIX",
   beatRate: 2.18,
   themes: [
     { sky: 0x24112d, fog: 0x2d132d, grid: 0xc05b8f, opacity: 0.28 },
@@ -336,10 +339,36 @@ const STAGES: StageConfig[] = [{
   laps: 2,
   aiTopSpeedBaseKmh: 226,
   bgmIndex: 2,
+  trackName: "BLUE NEON SHIFT",
   beatRate: 2.25,
   themes: [
     { sky: 0x071531, fog: 0x081b38, grid: 0x279bd8, opacity: 0.42 },
     { sky: 0x15104a, fog: 0x171451, grid: 0x54d9ff, opacity: 0.58 },
+  ],
+}, {
+  id: "quiet-lake",
+  name: "QUIET LAKE",
+  controlPoints: [
+    [-112, 0, -42], [-72, 1, -66], [-24, 3, -72], [22, 2, -58],
+    [58, -1, -72], [102, -3, -58], [118, 0, -26], [92, 4, -4],
+    [48, 1, -16], [24, -4, 8], [66, -6, 26], [112, -2, 48],
+    [94, 3, 82], [46, 7, 94], [4, 5, 72], [-28, 0, 92],
+    [-72, -4, 80], [-106, -6, 52], [-78, -2, 24], [-38, 4, 42],
+    [-4, 7, 24], [-32, 3, -2], [-82, -1, 2], [-122, -3, -18],
+  ],
+  tension: 0.12,
+  targetLengthMeters: 4200,
+  worldToMeters: 1.3,
+  trackWidth: 8.2,
+  segments: 480,
+  laps: 2,
+  aiTopSpeedBaseKmh: 232,
+  bgmIndex: 3,
+  trackName: "KAMIKAZE RUMBLE",
+  beatRate: 2.25,
+  themes: [
+    { sky: 0x050d1a, fog: 0x071526, grid: 0x286d86, opacity: 0.3 },
+    { sky: 0x0a1c22, fog: 0x0b252b, grid: 0x68c4bd, opacity: 0.46 },
   ],
 }];
 let stage = STAGES[0];
@@ -1149,6 +1178,7 @@ const bgmTracks = [
   document.querySelector<HTMLAudioElement>("#bgm1")!,
   document.querySelector<HTMLAudioElement>("#bgm2")!,
   document.querySelector<HTMLAudioElement>("#bgm3")!,
+  document.querySelector<HTMLAudioElement>("#bgm4")!,
 ];
 const duskBgm = document.querySelector<HTMLAudioElement>("#duskBgm")!;
 const allRaceBgmTracks = [...bgmTracks, duskBgm];
@@ -1318,7 +1348,7 @@ function showRadioCall(text: string, delayMs = 0) {
 }
 
 function lapAnnouncement(lap: number, position: number) {
-  if (lap === 1) return "MIDNIGHT SIGNAL // LIVE";
+  if (lap === 1) return `${stage.trackName} // LIVE`;
   const prefix = lap === TOTAL_LAPS ? "FINAL TRANSMISSION" : `LAP ${String(lap).padStart(2, "0")}`;
   if (position === 1) return `${prefix} // P1`;
   if (position <= 5) return `${prefix} // HOLD FREQUENCY`;

@@ -10,6 +10,7 @@ const js = await readFile(new URL(`../dist/${assetPath(jsMatch[1])}`, import.met
 const bgm = await readFile(new URL("../public/Nebura_Drifter.mp3", import.meta.url));
 const stage2Bgm = await readFile(new URL("../public/midnight_run_Remix.mp3", import.meta.url));
 const stage3Bgm = await readFile(new URL("../public/Blue_Neon_Shift.mp3", import.meta.url));
+const stage4Bgm = await readFile(new URL("../public/kamikaze_rumble.mp3", import.meta.url));
 const duskBgm = await readFile(new URL("../public/evening_velocity.mp3", import.meta.url));
 const finishBgm = await readFile(new URL("../public/Nebura_Afterglow.mp3", import.meta.url));
 html = html.replace(cssMatch[0], () => `<style>${css}</style>`);
@@ -17,6 +18,7 @@ html = html.replace(jsMatch[0], () => `<script type="module">${js}</script>`);
 html = html.replace(/(?:\.\/|\/)Nebura_Drifter\.mp3/, `data:audio/mpeg;base64,${bgm.toString("base64")}`);
 html = html.replace(/(?:\.\/|\/)midnight_run_Remix\.mp3/, `data:audio/mpeg;base64,${stage2Bgm.toString("base64")}`);
 html = html.replace(/(?:\.\/|\/)Blue_Neon_Shift\.mp3/, `data:audio/mpeg;base64,${stage3Bgm.toString("base64")}`);
+html = html.replace(/(?:\.\/|\/)kamikaze_rumble\.mp3/, `data:audio/mpeg;base64,${stage4Bgm.toString("base64")}`);
 html = html.replace(/(?:\.\/|\/)evening_velocity\.mp3/, `data:audio/mpeg;base64,${duskBgm.toString("base64")}`);
 html = html.replace(/(?:\.\/|\/)Nebura_Afterglow\.mp3/, `data:audio/mpeg;base64,${finishBgm.toString("base64")}`);
 await writeFile(new URL("../dist/nebura-drifter.html", import.meta.url), html);
