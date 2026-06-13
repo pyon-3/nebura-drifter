@@ -786,7 +786,7 @@ function mergeCarBodyParts(car: THREE.Group) {
 
 type CarType = "grip" | "drift";
 
-function makeCar(bodyColor: number, rival = false, carType: CarType = "grip") {
+function makeDetailedCar(bodyColor: number, rival = false, carType: CarType = "grip") {
   const car = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.34, metalness: 0.68, flatShading: true });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x09131d, roughness: 0.5, metalness: 0.72, flatShading: true });
@@ -1045,6 +1045,83 @@ function makeCar(bodyColor: number, rival = false, carType: CarType = "grip") {
   return car;
 }
 
+function makeCar(bodyColor: number, rival = false, carType: CarType = "grip") {
+  const car = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.38, metalness: 0.58, flatShading: true });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x101928, roughness: 0.2, metalness: 0.48, flatShading: true });
+  const darkMat = new THREE.MeshBasicMaterial({ color: 0x08090c });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0x7e858b, roughness: 0.45, metalness: 0.65, flatShading: true });
+  const accentMat = new THREE.MeshBasicMaterial({ color: rival ? 0xffd744 : carType === "drift" ? 0xffffff : 0x52efff });
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2244 });
+
+  car.add(new THREE.Mesh(makeCarSection(1.82, -1.72, 0.22, 0.6, 0.68, 0.77, 0.89, 0.88), bodyMat));
+  car.add(new THREE.Mesh(makeCarSection(1.7, 0.38, 0.57, 0.72, 0.86, 0.88, 0.64, 0.78), bodyMat));
+  car.add(new THREE.Mesh(makeCarSection(0.34, -1.22, 0.66, 1.18, 0.77, 0.78, 0.48, 0.58), glassMat));
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.06, 0.7), bodyMat);
+  roof.position.set(0, 1.2, -0.48);
+  car.add(roof);
+
+  const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.13, 0.22), darkMat);
+  bumper.position.set(0, 0.25, 1.76);
+  car.add(bumper);
+  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.15, 0.03), darkMat);
+  grille.position.set(0, 0.4, 1.88);
+  car.add(grille);
+
+  for (const x of [-0.54, 0.54]) {
+    const headlight = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.12, 0.04), new THREE.MeshBasicMaterial({ color: 0xc9f8ff }));
+    headlight.position.set(x, 0.58, 1.84);
+    car.add(headlight);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.13, 0.04), tailMat);
+    tail.position.set(x, 0.57, -1.76);
+    car.add(tail);
+  }
+
+  for (const z of [-0.92, 1.02]) {
+    for (const x of [-0.91, 0.91]) {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.24, 12), darkMat);
+      tire.rotation.z = Math.PI / 2;
+      tire.position.set(x, 0.34, z);
+      car.add(tire);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.25, 8), rimMat);
+      rim.rotation.z = Math.PI / 2;
+      rim.position.set(x, 0.34, z);
+      car.add(rim);
+    }
+  }
+
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.018, 1.12), accentMat);
+  stripe.position.set(0, 0.72, 1.02);
+  car.add(stripe);
+  const numberMaterial = new THREE.MeshBasicMaterial({ map: makeNumberTexture(rival), side: THREE.DoubleSide });
+  for (const x of [-0.895, 0.895]) {
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.46), numberMaterial);
+    panel.rotation.y = Math.PI / 2;
+    panel.position.set(x, 0.65, -0.28);
+    car.add(panel);
+  }
+
+  const wingWidth = carType === "drift" ? 2.28 : 1.82;
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(wingWidth, 0.075, carType === "drift" ? 0.48 : 0.34), darkMat);
+  wing.position.set(0, carType === "drift" ? 1.24 : 1.04, -1.42);
+  car.add(wing);
+  for (const x of [-0.48, 0.48]) {
+    const stayHeight = carType === "drift" ? 0.54 : 0.3;
+    const stay = new THREE.Mesh(new THREE.BoxGeometry(0.065, stayHeight, 0.08), darkMat);
+    stay.position.set(x, carType === "drift" ? 0.96 : 0.88, -1.42);
+    car.add(stay);
+  }
+  if (carType === "drift") {
+    car.scale.set(1.05, 0.94, 1.03);
+  }
+
+  const spillMaterial = new THREE.MeshBasicMaterial({ color: 0xff183d, transparent: true, opacity: 0, depthWrite: false });
+  car.userData.tailLights = { coreMaterials: [], haloMaterials: [], sprites: [], spillMaterial, intensity: 0.45, rival, solidMaterials: [tailMat] };
+  car.userData.carType = carType;
+  mergeCarBodyParts(car);
+  return car;
+}
+
 let selectedCarType: CarType = "grip";
 let playerCar = makeCar(0x0a5164, false, selectedCarType);
 scene.add(playerCar);
@@ -1055,7 +1132,7 @@ const ghostCar = new THREE.LineSegments(
 ghostCar.visible = false;
 scene.add(ghostCar);
 type Rival = { car: THREE.Group; carType: CarType; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
-const rivalColors = [0x171424, 0x42203e, 0x112c4a, 0x3f1623, 0x153d39, 0x422b12, 0x292044];
+const rivalColors = [0xe0b321, 0x6d3fb5, 0x2767c7, 0xc43d78, 0x2b9a67, 0xd66a24, 0xaeb8c2];
 const rivals: Rival[] = rivalColors.map((color, i) => {
   const carType: CarType = i % 3 === 0 ? "drift" : "grip";
   const car = makeCar(color, true, carType);
@@ -1212,6 +1289,7 @@ function updateTailLights(car: THREE.Group, targetIntensity: number, dt: number,
     haloMaterials: THREE.SpriteMaterial[];
     sprites: THREE.Sprite[];
     spillMaterial: THREE.MeshBasicMaterial;
+    solidMaterials?: THREE.MeshBasicMaterial[];
     intensity: number;
     rival: boolean;
   } | undefined;
@@ -1224,6 +1302,9 @@ function updateTailLights(car: THREE.Group, targetIntensity: number, dt: number,
     const base = index % 2 === 0 ? 0.72 : 0.22;
     const brakeGrowth = index % 2 === 0 ? 0.34 : 0.16;
     sprite.scale.setScalar((base + brakeGrowth * intensity) * distanceScale);
+  });
+  lights.solidMaterials?.forEach(material => {
+    material.color.setRGB(1, 0.035 + intensity * 0.12, 0.07 + intensity * 0.1);
   });
   lights.spillMaterial.opacity = 0.035 + intensity * 0.11;
 }
@@ -2064,15 +2145,15 @@ const gripVehicle = {
   frontAxle: 1.25,
   rearAxle: 1.25,
   cgHeight: 0.55,
-  frontCornerStiffness: 72000,
-  rearCornerStiffness: 74000,
-  frontGrip: 1.32,
-  rearGrip: 1.36,
+  frontCornerStiffness: 86000,
+  rearCornerStiffness: 90000,
+  frontGrip: 1.52,
+  rearGrip: 1.58,
   engineForce: 9200,
   brakeForce: 15500,
   rollingResistance: 45,
-  aerodynamicDrag: 0.22,
-  maxSteer: 0.44,
+  aerodynamicDrag: 0.21,
+  maxSteer: 0.46,
 };
 const driftVehicle = {
   ...gripVehicle,
@@ -2164,7 +2245,8 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const speedRatio = THREE.MathUtils.clamp(playerSpeed / MAX_SPEED_MPS, 0, 1);
   const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.27, speedRatio);
   const stabilitySteer = THREE.MathUtils.clamp(-yawError * 0.58 - yawRate * 0.16, -0.22, 0.22) * speedRatio;
-  const assistStrength = THREE.MathUtils.lerp(1, driftState === "hold" ? 0.52 : 0.3, Math.abs(steer));
+  const gripCar = selectedCarType === "grip";
+  const assistStrength = THREE.MathUtils.lerp(gripCar ? 1.22 : 1, driftState === "hold" ? 0.52 : gripCar ? 0.48 : 0.3, Math.abs(steer));
   const laneAssist = THREE.MathUtils.clamp(-lane / (TRACK_WIDTH * 5.5), -0.12, 0.12) * speedRatio * assistStrength;
   const driverSteer = -steer * steerLimit;
   const targetSteer = THREE.MathUtils.clamp(driverSteer + stabilitySteer + laneAssist, -steerLimit, steerLimit);
@@ -2203,7 +2285,7 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
     const yawAccel = (frontForce * Math.cos(steerAngle) * vehicle.frontAxle - rearForce * vehicle.rearAxle) / vehicle.inertia;
     lateralVelocity += lateralAccel * dt;
     yawRate += yawAccel * dt;
-    const stability = THREE.MathUtils.lerp(2.2, 4.4, speedRatio) * (driftState === "hold" ? 0.2 : driftState === "entry" ? 0.35 : 1);
+    const stability = THREE.MathUtils.lerp(gripCar ? 3.1 : 2.2, gripCar ? 5.8 : 4.4, speedRatio) * (driftState === "hold" ? 0.2 : driftState === "entry" ? 0.35 : 1);
     yawRate -= yawError * stability * dt;
     lateralVelocity -= lateralVelocity * THREE.MathUtils.lerp(0.35, 0.72, speedRatio) * (driftState === "hold" ? 0.18 : 1) * dt;
     yawRate *= Math.pow(offRoad ? 0.12 : 0.48, dt);
