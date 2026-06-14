@@ -1787,7 +1787,9 @@ function bindMenuPress(element: HTMLElement, handler: () => void) {
     if (event.cancelable) event.preventDefault();
     handler();
   };
-  element.addEventListener("pointerup", press);
+  element.addEventListener("pointerdown", press);
+  element.addEventListener("mousedown", press);
+  element.addEventListener("touchstart", press, { passive: false });
   element.addEventListener("touchend", press, { passive: false });
   element.addEventListener("click", press);
 }
