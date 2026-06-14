@@ -1787,8 +1787,7 @@ function bindMenuPress(element: HTMLElement, handler: () => void) {
     if (event.cancelable) event.preventDefault();
     handler();
   };
-  element.addEventListener("pointerdown", press);
-  element.addEventListener("touchend", press, { passive: false });
+  element.addEventListener("touchstart", press, { passive: false });
   element.addEventListener("click", press);
 }
 bindMenuPress(goCourseSelectEl, () => {
@@ -2458,11 +2457,20 @@ function monitorMobilePerformance(nowMs: number) {
   if (reducedEffects && fastFpsWindows >= 3) setReducedEffects(false);
 }
 
+let lastMenuRender = 0;
 function animate() {
   requestAnimationFrame(animate);
-  monitorMobilePerformance(performance.now());
+  const frameNow = performance.now();
   const dt = Math.min(clock.getDelta(), 0.04);
-  const now = performance.now() / 1000;
+  if (menuScreen !== "none") {
+    if (frameNow - lastMenuRender > 100) {
+      lastMenuRender = frameNow;
+      renderer.render(scene, camera);
+    }
+    return;
+  }
+  monitorMobilePerformance(frameNow);
+  const now = frameNow / 1000;
   if (paused) {
     renderer.render(scene, camera);
     return;
