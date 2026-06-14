@@ -1827,6 +1827,18 @@ bindMenuPress(enterGridEl, () => {
 bindMenuPress(backToTitleEl, () => {
   showTitleScreen();
 });
+function handleMenuFallback(target: EventTarget | null) {
+  const element = target instanceof Element ? target : null;
+  if (!element) return;
+  if (menuScreen === "title" && (element.closest("#goCourseSelect") || title.contains(element))) {
+    showCourseSelect();
+    return;
+  }
+  if (menuScreen === "course" && element.closest("#enterGrid")) {
+    switchStage(selectedStageIndex);
+    requestStart();
+  }
+}
 addEventListener("pointerdown", e => {
   if (!replaying && menuScreen === "none") arm();
 });
@@ -1843,7 +1855,11 @@ document.addEventListener("touchend", e => {
   const now = performance.now();
   if (now - lastTouchEnd < 280) e.preventDefault();
   lastTouchEnd = now;
+  handleMenuFallback(e.target);
 }, { passive: false });
+document.addEventListener("click", e => {
+  handleMenuFallback(e.target);
+});
 steeringEl.addEventListener("pointerdown", e => {
   e.stopPropagation();
   e.preventDefault();
