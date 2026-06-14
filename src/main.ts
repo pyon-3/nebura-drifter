@@ -2458,20 +2458,16 @@ function monitorMobilePerformance(nowMs: number) {
   if (reducedEffects && fastFpsWindows >= 3) setReducedEffects(false);
 }
 
-let lastMenuRender = 0;
 function animate() {
   requestAnimationFrame(animate);
   const frameNow = performance.now();
   const dt = Math.min(clock.getDelta(), 0.04);
-  if (menuScreen !== "none") {
-    if (frameNow - lastMenuRender > 100) {
-      lastMenuRender = frameNow;
-      renderer.render(scene, camera);
-    }
-    return;
-  }
   monitorMobilePerformance(frameNow);
   const now = frameNow / 1000;
+  if (menuScreen !== "none") {
+    renderer.render(scene, camera);
+    return;
+  }
   if (paused) {
     renderer.render(scene, camera);
     return;
