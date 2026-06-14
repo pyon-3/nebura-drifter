@@ -1787,7 +1787,7 @@ function bindMenuPress(element: HTMLElement, handler: () => void) {
     if (event.cancelable) event.preventDefault();
     handler();
   };
-  element.addEventListener("pointerdown", press);
+  element.addEventListener("pointerup", press);
   element.addEventListener("touchend", press, { passive: false });
   element.addEventListener("click", press);
 }
@@ -2458,11 +2458,20 @@ function monitorMobilePerformance(nowMs: number) {
   if (reducedEffects && fastFpsWindows >= 3) setReducedEffects(false);
 }
 
+let lastMenuRender = 0;
 function animate() {
   requestAnimationFrame(animate);
   monitorMobilePerformance(performance.now());
   const dt = Math.min(clock.getDelta(), 0.04);
   const now = performance.now() / 1000;
+  if (menuScreen !== "none") {
+    const menuNow = performance.now();
+    if (menuNow - lastMenuRender > 120) {
+      lastMenuRender = menuNow;
+      renderer.render(scene, camera);
+    }
+    return;
+  }
   if (paused) {
     renderer.render(scene, camera);
     return;
