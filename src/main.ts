@@ -568,30 +568,135 @@ function makeRoad() {
     for (const side of [-1, 1]) addRoadBox(u, side * (TRACK_WIDTH * 0.5 - 0.24), 0.44, 1.6, i % 2 ? curbRed : curbWhite);
   }
 }
-let worldBuilt = false;
-let floor!: THREE.Mesh;
-let grid!: THREE.GridHelper;
-let gridMaterials: THREE.LineBasicMaterial[] = [];
-let starMaterial!: THREE.PointsMaterial;
-let stars!: THREE.Points;
-let finalRings!: THREE.Group;
-let finalRingMaterials: THREE.MeshBasicMaterial[] = [];
-let smokeTexture!: THREE.Texture;
-let tailSpillTexture!: THREE.Texture;
+makeRoad();
+addWireEnvironment();
+addAdvancedEnvironment();
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(3000, 3000),
+  new THREE.MeshBasicMaterial({ color: 0x070b1c }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = TRACK_FLOOR_Y;
+stageGroup.add(floor);
+const grid = new THREE.GridHelper(2200, 110, 0x31dff4, 0x174b69);
+grid.position.y = TRACK_FLOOR_Y + 0.04;
+const gridMaterials = (Array.isArray(grid.material) ? grid.material : [grid.material]) as THREE.LineBasicMaterial[];
+gridMaterials.forEach(material => {
+  material.transparent = true;
+  material.opacity = 0.16;
+  material.depthWrite = false;
+});
+stageGroup.add(grid);
+
+const starGeo = new THREE.BufferGeometry();
+const starPos: number[] = [];
+for (let i = 0; i < 260; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const r = 650 + Math.random() * 700;
+  starPos.push(Math.cos(a) * r, 8 + Math.random() * 42, Math.sin(a) * r);
+}
+starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPos, 3));
+const starMaterial = new THREE.PointsMaterial({ color: 0x9ac7ff, size: 1.15, transparent: true, opacity: 0.55 });
+const stars = markEffect(new THREE.Points(starGeo, starMaterial), "particles", "background-stars");
+scene.add(stars);
+const finalRings = new THREE.Group();
+const finalRingMaterials: THREE.MeshBasicMaterial[] = [];
+for (let i = 0; i < 3; i++) {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xff3f7c,
+    wireframe: true,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(190 + i * 92, 0.5 + i * 0.18, 4, 80), material);
+  markEffect(ring, "glow", `final-glow-ring-${i}`);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 16 + i * 18;
+  finalRingMaterials.push(material);
+  finalRings.add(ring);
+}
+scene.add(finalRings);
+
 type SmokeParticle = { sprite: THREE.Sprite; velocity: THREE.Vector3; life: number; maxLife: number };
-let smokeParticles: SmokeParticle[] = [];
+const smokeTexture = (() => {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = textureCanvas.height = 64;
+  const context = textureCanvas.getContext("2d")!;
+  const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 30);
+  gradient.addColorStop(0, "rgba(170,235,255,.55)");
+  gradient.addColorStop(0.45, "rgba(110,150,190,.22)");
+  gradient.addColorStop(1, "rgba(40,60,90,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+})();
+const tailSpillTexture = (() => {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = textureCanvas.height = 128;
+  const context = textureCanvas.getContext("2d")!;
+  const gradient = context.createRadialGradient(64, 38, 2, 64, 52, 68);
+  gradient.addColorStop(0, "rgba(255,225,225,.92)");
+  gradient.addColorStop(0.12, "rgba(255,55,85,.56)");
+  gradient.addColorStop(0.42, "rgba(255,25,62,.18)");
+  gradient.addColorStop(0.72, "rgba(185,8,38,.045)");
+  gradient.addColorStop(1, "rgba(90,0,20,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+})();
+const smokeParticles: SmokeParticle[] = Array.from({ length: 34 }, () => {
+  const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: safeBlending, alphaTest: 0.02 });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = "drift-smoke-sprite";
+  sprite.userData.effectGroup = "particles";
+  sprite.visible = false;
+  scene.add(sprite);
+  return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1 };
+});
 let smokeCursor = 0;
 let lastSmokeEmit = 0;
+
 type FireworkParticle = { index: number; position: THREE.Vector3; velocity: THREE.Vector3; color: THREE.Color; size: number; life: number; maxLife: number; rocket: boolean };
 const FIREWORK_PARTICLE_COUNT = 700;
 const fireworkPositions = new Float32Array(FIREWORK_PARTICLE_COUNT * 3);
 const fireworkColors = new Float32Array(FIREWORK_PARTICLE_COUNT * 3);
 const fireworkSizes = new Float32Array(FIREWORK_PARTICLE_COUNT);
 const fireworkAlphas = new Float32Array(FIREWORK_PARTICLE_COUNT);
-let fireworkGeometry!: THREE.BufferGeometry;
-let fireworkMaterial!: THREE.ShaderMaterial;
-let fireworkPoints!: THREE.Points;
-let fireworkParticles: FireworkParticle[] = [];
+const fireworkGeometry = new THREE.BufferGeometry();
+fireworkGeometry.setAttribute("position", new THREE.BufferAttribute(fireworkPositions, 3));
+fireworkGeometry.setAttribute("color", new THREE.BufferAttribute(fireworkColors, 3));
+fireworkGeometry.setAttribute("aSize", new THREE.BufferAttribute(fireworkSizes, 1));
+fireworkGeometry.setAttribute("aAlpha", new THREE.BufferAttribute(fireworkAlphas, 1));
+const fireworkMaterial = new THREE.ShaderMaterial({
+  vertexShader: `attribute float aSize;attribute float aAlpha;attribute vec3 color;varying float vAlpha;varying vec3 vColor;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vAlpha=aAlpha;vColor=color;gl_PointSize=aSize*(260.0/max(1.0,-mv.z));gl_Position=projectionMatrix*mv;}`,
+  fragmentShader: `varying float vAlpha;varying vec3 vColor;void main(){float d=length(gl_PointCoord-vec2(.5));float glow=smoothstep(.5,0.0,d);float alpha=glow*glow*vAlpha;if(alpha<.01)discard;gl_FragColor=vec4(vColor,alpha);}`,
+  transparent: true,
+  depthWrite: false,
+  blending: safeBlending,
+  vertexColors: true,
+});
+const fireworkPoints = new THREE.Points(fireworkGeometry, fireworkMaterial);
+markEffect(fireworkPoints, "particles", "firework-points");
+fireworkPoints.frustumCulled = false;
+scene.add(fireworkPoints);
+const fireworkParticles: FireworkParticle[] = Array.from({ length: 700 }, (_, i) => {
+  const color = new THREE.Color([0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4]);
+  color.toArray(fireworkColors, i * 3);
+  return { index: i, position: new THREE.Vector3(), velocity: new THREE.Vector3(), color, size: 0, life: 0, maxLife: 1, rocket: false };
+});
 let fireworkCursor = 0;
 let lastFirework = 0;
 let finalLapFireworkCount = 0;
@@ -983,228 +1088,76 @@ function makeCar(bodyColor: number, rival = false, carType: CarType = "grip") {
 }
 
 let selectedCarType: CarType = "grip";
-let playerCar!: THREE.Group;
-let ghostCar!: THREE.LineSegments;
+let playerCar = makeCar(0x0a5164, false, selectedCarType);
+scene.add(playerCar);
+const ghostCar = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.82, 0.72, 3.25)),
+  new THREE.LineBasicMaterial({ color: 0x72efff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending }),
+);
+ghostCar.visible = false;
+scene.add(ghostCar);
 type Rival = { car: THREE.Group; carType: CarType; carModel: CarModel; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
 const rivalColors = [0xe0b321, 0x6d3fb5, 0x2767c7, 0xc43d78, 0x2b9a67, 0xd66a24, 0xaeb8c2];
 const rivalCarTypes: CarType[] = ["drift", "drift", "grip", "grip", "drift", "drift", "grip"];
 const rivalCarModels: CarModel[] = ["simple", "detailed", "simple", "detailed", "simple", "detailed", "simple"];
-let rivals: Rival[] = [];
-let rivalTailSamples: TrailSample[][] = [];
-let trailMaterial!: THREE.ShaderMaterial;
-let bleedMaterial!: THREE.ShaderMaterial;
-let playerTrailMaterial!: THREE.ShaderMaterial;
-let playerBleedMaterial!: THREE.ShaderMaterial;
-let mainLeft!: THREE.Mesh;
-let mainRight!: THREE.Mesh;
-let bleedLeft!: THREE.Mesh;
-let bleedRight!: THREE.Mesh;
-let playerMainLeft!: THREE.Mesh;
-let playerMainRight!: THREE.Mesh;
-let playerBleedLeft!: THREE.Mesh;
-let playerBleedRight!: THREE.Mesh;
-let rivalTailMeshes: Array<{ left: THREE.Mesh; right: THREE.Mesh }> = [];
-let ghostCarMaterial!: THREE.LineBasicMaterial;
+const rivals: Rival[] = rivalColors.map((color, i) => {
+  const carType = rivalCarTypes[i];
+  const carModel = rivalCarModels[i];
+  const car = carModel === "detailed" ? makeDetailedCar(color, true, carType) : makeCar(color, true, carType);
+  scene.add(car);
+  return {
+    car,
+    carType,
+    carModel,
+    progress: 0.045 - i * 0.014,
+    lane: (i % 2 ? 1 : -1) * (0.65 + (i % 3) * 0.65),
+    speedMps: 0,
+    topSpeedMps: (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6,
+    acceleration: 5.1 + (i % 3) * 0.42,
+    phase: i * 1.7,
+    tailIntensity: 0.45,
+  };
+});
+
 type TrailSample = { left: THREE.Vector3; right: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3; born: number; strength?: number };
 const samples: TrailSample[] = [];
 const playerSamples: TrailSample[] = [];
+const rivalTailSamples: TrailSample[][] = rivals.map(() => []);
 const TRAIL_LIFE = 1.38;
 const PLAYER_TRAIL_LIFE = 0.46;
 const RIVAL_TAIL_LIFE = 0.28;
+const trailMaterial = new THREE.ShaderMaterial({
+  uniforms: { tint: { value: new THREE.Color(0xff193c) } },
+  vertexShader: `attribute float aAlpha; varying float vAlpha; void main(){vAlpha=aAlpha;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader: `uniform vec3 tint; varying float vAlpha; void main(){float soft=sin(vAlpha*1.5708);gl_FragColor=vec4(tint,soft*vAlpha);}`,
+  transparent: true, depthWrite: false, blending: safeBlending, side: THREE.DoubleSide,
+});
+const bleedMaterial = trailMaterial.clone();
+bleedMaterial.uniforms.tint.value = new THREE.Color(0xb80b24);
+const playerTrailMaterial = trailMaterial.clone();
+playerTrailMaterial.uniforms.tint.value = new THREE.Color(0xff2445);
+const playerBleedMaterial = trailMaterial.clone();
+playerBleedMaterial.uniforms.tint.value = new THREE.Color(0x9d0b20);
 
-function ensureWorldBuilt(config: StageConfig = stage) {
-  if (worldBuilt) return;
-  worldBuilt = true;
-  configureStage(config);
-
-  makeRoad();
-  addWireEnvironment();
-  addAdvancedEnvironment();
-
-  floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(3000, 3000),
-    new THREE.MeshBasicMaterial({ color: 0x070b1c }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = TRACK_FLOOR_Y;
-  stageGroup.add(floor);
-
-  grid = new THREE.GridHelper(2200, 110, 0x31dff4, 0x174b69);
-  grid.position.y = TRACK_FLOOR_Y + 0.04;
-  gridMaterials = (Array.isArray(grid.material) ? grid.material : [grid.material]) as THREE.LineBasicMaterial[];
-  gridMaterials.forEach(material => {
-    material.transparent = true;
-    material.opacity = 0.16;
-    material.depthWrite = false;
-  });
-  stageGroup.add(grid);
-
-  const starGeo = new THREE.BufferGeometry();
-  const starPos: number[] = [];
-  for (let i = 0; i < 260; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const r = 650 + Math.random() * 700;
-    starPos.push(Math.cos(a) * r, 8 + Math.random() * 42, Math.sin(a) * r);
-  }
-  starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPos, 3));
-  starMaterial = new THREE.PointsMaterial({ color: 0x9ac7ff, size: 1.15, transparent: true, opacity: 0.55 });
-  stars = markEffect(new THREE.Points(starGeo, starMaterial), "particles", "background-stars");
-  scene.add(stars);
-
-  finalRings = new THREE.Group();
-  finalRingMaterials = [];
-  for (let i = 0; i < 3; i++) {
-    const material = new THREE.MeshBasicMaterial({
-      color: 0xff3f7c,
-      wireframe: true,
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(190 + i * 92, 0.5 + i * 0.18, 4, 80), material);
-    markEffect(ring, "glow", `final-glow-ring-${i}`);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 16 + i * 18;
-    finalRingMaterials.push(material);
-    finalRings.add(ring);
-  }
-  scene.add(finalRings);
-
-  smokeTexture = (() => {
-    const textureCanvas = document.createElement("canvas");
-    textureCanvas.width = textureCanvas.height = 64;
-    const context = textureCanvas.getContext("2d")!;
-    const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 30);
-    gradient.addColorStop(0, "rgba(170,235,255,.55)");
-    gradient.addColorStop(0.45, "rgba(110,150,190,.22)");
-    gradient.addColorStop(1, "rgba(40,60,90,0)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, 64, 64);
-    const texture = new THREE.CanvasTexture(textureCanvas);
-    texture.generateMipmaps = false;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
-  })();
-  tailSpillTexture = (() => {
-    const textureCanvas = document.createElement("canvas");
-    textureCanvas.width = textureCanvas.height = 128;
-    const context = textureCanvas.getContext("2d")!;
-    const gradient = context.createRadialGradient(64, 38, 2, 64, 52, 68);
-    gradient.addColorStop(0, "rgba(255,225,225,.92)");
-    gradient.addColorStop(0.12, "rgba(255,55,85,.56)");
-    gradient.addColorStop(0.42, "rgba(255,25,62,.18)");
-    gradient.addColorStop(0.72, "rgba(185,8,38,.045)");
-    gradient.addColorStop(1, "rgba(90,0,20,0)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, 128, 128);
-    const texture = new THREE.CanvasTexture(textureCanvas);
-    texture.generateMipmaps = false;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
-  })();
-  smokeParticles = Array.from({ length: 34 }, () => {
-    const material = new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false, blending: safeBlending, alphaTest: 0.02 });
-    const sprite = new THREE.Sprite(material);
-    sprite.name = "drift-smoke-sprite";
-    sprite.userData.effectGroup = "particles";
-    sprite.visible = false;
-    scene.add(sprite);
-    return { sprite, velocity: new THREE.Vector3(), life: 0, maxLife: 1 };
-  });
-  fireworkGeometry = new THREE.BufferGeometry();
-  fireworkGeometry.setAttribute("position", new THREE.BufferAttribute(fireworkPositions, 3));
-  fireworkGeometry.setAttribute("color", new THREE.BufferAttribute(fireworkColors, 3));
-  fireworkGeometry.setAttribute("aSize", new THREE.BufferAttribute(fireworkSizes, 1));
-  fireworkGeometry.setAttribute("aAlpha", new THREE.BufferAttribute(fireworkAlphas, 1));
-  fireworkMaterial = new THREE.ShaderMaterial({
-    vertexShader: `attribute float aSize;attribute float aAlpha;attribute vec3 color;varying float vAlpha;varying vec3 vColor;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vAlpha=aAlpha;vColor=color;gl_PointSize=aSize*(260.0/max(1.0,-mv.z));gl_Position=projectionMatrix*mv;}`,
-    fragmentShader: `varying float vAlpha;varying vec3 vColor;void main(){float d=length(gl_PointCoord-vec2(.5));float glow=smoothstep(.5,0.0,d);float alpha=glow*glow*vAlpha;if(alpha<.01)discard;gl_FragColor=vec4(vColor,alpha);}`,
-    transparent: true,
-    depthWrite: false,
-    blending: safeBlending,
-    vertexColors: true,
-  });
-  fireworkPoints = new THREE.Points(fireworkGeometry, fireworkMaterial);
-  markEffect(fireworkPoints, "particles", "firework-points");
-  fireworkPoints.frustumCulled = false;
-  scene.add(fireworkPoints);
-  fireworkParticles = Array.from({ length: 700 }, (_, i) => {
-    const color = new THREE.Color([0xff4878, 0x51eaff, 0xffd45a, 0xb36cff][i % 4]);
-    color.toArray(fireworkColors, i * 3);
-    return { index: i, position: new THREE.Vector3(), velocity: new THREE.Vector3(), color, size: 0, life: 0, maxLife: 1, rocket: false };
-  });
-
-  playerCar = makeCar(0x0a5164, false, selectedCarType);
-  scene.add(playerCar);
-  ghostCarMaterial = new THREE.LineBasicMaterial({ color: 0x72efff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending });
-  ghostCar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.82, 0.72, 3.25)), ghostCarMaterial);
-  ghostCar.visible = false;
-  scene.add(ghostCar);
-  rivals = rivalColors.map((color, i) => {
-    const carType = rivalCarTypes[i];
-    const carModel = rivalCarModels[i];
-    const car = carModel === "detailed" ? makeDetailedCar(color, true, carType) : makeCar(color, true, carType);
-    scene.add(car);
-    return {
-      car,
-      carType,
-      carModel,
-      progress: 0.045 - i * 0.014,
-      lane: (i % 2 ? 1 : -1) * (0.65 + (i % 3) * 0.65),
-      speedMps: 0,
-      topSpeedMps: (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6,
-      acceleration: 5.1 + (i % 3) * 0.42,
-      phase: i * 1.7,
-      tailIntensity: 0.45,
-    };
-  });
-  rivalTailSamples = rivals.map(() => []);
-  trailMaterial = new THREE.ShaderMaterial({
-    uniforms: { tint: { value: new THREE.Color(0xff193c) } },
-    vertexShader: `attribute float aAlpha; varying float vAlpha; void main(){vAlpha=aAlpha;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-    fragmentShader: `uniform vec3 tint; varying float vAlpha; void main(){float soft=sin(vAlpha*1.5708);gl_FragColor=vec4(tint,soft*vAlpha);}`,
-    transparent: true, depthWrite: false, blending: safeBlending, side: THREE.DoubleSide,
-  });
-  bleedMaterial = trailMaterial.clone();
-  bleedMaterial.uniforms.tint.value = new THREE.Color(0xb80b24);
-  playerTrailMaterial = trailMaterial.clone();
-  playerTrailMaterial.uniforms.tint.value = new THREE.Color(0xff2445);
-  playerBleedMaterial = trailMaterial.clone();
-  playerBleedMaterial.uniforms.tint.value = new THREE.Color(0x9d0b20);
-  function makeTrailMesh(material: THREE.Material, group: "trail" | "bleed", name: string) {
-    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
-    markEffect(mesh, group, name);
-    mesh.frustumCulled = false;
-    scene.add(mesh);
-    return mesh;
-  }
-  mainLeft = makeTrailMesh(trailMaterial, "trail", "lead-tail-trail-left");
-  mainRight = makeTrailMesh(trailMaterial, "trail", "lead-tail-trail-right");
-  bleedLeft = makeTrailMesh(bleedMaterial, "bleed", "lead-ground-bleed-left");
-  bleedRight = makeTrailMesh(bleedMaterial, "bleed", "lead-ground-bleed-right");
-  playerMainLeft = makeTrailMesh(playerTrailMaterial, "trail", "player-tail-trail-left");
-  playerMainRight = makeTrailMesh(playerTrailMaterial, "trail", "player-tail-trail-right");
-  playerBleedLeft = makeTrailMesh(playerBleedMaterial, "bleed", "player-ground-bleed-left");
-  playerBleedRight = makeTrailMesh(playerBleedMaterial, "bleed", "player-ground-bleed-right");
-  rivalTailMeshes = rivals.map((_, i) => ({
-    left: makeTrailMesh(trailMaterial.clone(), "trail", `rival-${i}-tail-trail-left`),
-    right: makeTrailMesh(trailMaterial.clone(), "trail", `rival-${i}-tail-trail-right`),
-  }));
-
-  patchEffectTexturesAndVisibility();
-  updateMinimapTrack();
-  loadBestLap();
-  resetVisualTheme();
-  if (reducedEffects) {
-    reducedEffects = false;
-    setReducedEffects(true);
-  }
+function makeTrailMesh(material: THREE.Material, group: "trail" | "bleed", name: string) {
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  markEffect(mesh, group, name);
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  return mesh;
 }
+const mainLeft = makeTrailMesh(trailMaterial, "trail", "lead-tail-trail-left");
+const mainRight = makeTrailMesh(trailMaterial, "trail", "lead-tail-trail-right");
+const bleedLeft = makeTrailMesh(bleedMaterial, "bleed", "lead-ground-bleed-left");
+const bleedRight = makeTrailMesh(bleedMaterial, "bleed", "lead-ground-bleed-right");
+const playerMainLeft = makeTrailMesh(playerTrailMaterial, "trail", "player-tail-trail-left");
+const playerMainRight = makeTrailMesh(playerTrailMaterial, "trail", "player-tail-trail-right");
+const playerBleedLeft = makeTrailMesh(playerBleedMaterial, "bleed", "player-ground-bleed-left");
+const playerBleedRight = makeTrailMesh(playerBleedMaterial, "bleed", "player-ground-bleed-right");
+const rivalTailMeshes = rivals.map((_, i) => ({
+  left: makeTrailMesh(trailMaterial.clone(), "trail", `rival-${i}-tail-trail-left`),
+  right: makeTrailMesh(trailMaterial.clone(), "trail", `rival-${i}-tail-trail-right`),
+}));
 
 function objectMaterials(object: THREE.Object3D) {
   const material = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
@@ -1498,6 +1451,9 @@ function updateGhost(now: number) {
   const right = ghostFrame.right.clone().applyAxisAngle(ghostFrame.normal, yaw);
   ghostCar.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, ghostFrame.normal, tangent));
 }
+updateMinimapTrack();
+loadBestLap();
+
 function playerPosition() {
   return 1 + rivals.filter(rival => rival.progress > playerProgress).length;
 }
@@ -1589,6 +1545,8 @@ function applyLapTheme(lap: number) {
     material.opacity = theme.opacity;
   });
 }
+applyLapTheme(1);
+
 function resetVisualTheme() {
   const dusk = timeMode === "dusk";
   document.body.classList.toggle("dusk", dusk);
@@ -1785,7 +1743,6 @@ function playCountdownBeep(go = false) {
 }
 function requestStart() {
   if (running || replaying || countdownEnd > 0) return;
-  ensureWorldBuilt(stage);
   stopFinishBgm();
   armed = true;
   hideMenus();
@@ -2094,7 +2051,6 @@ function restartRace() {
 
 function switchStage(index: number) {
   const nextStage = STAGES[index] ?? STAGES[0];
-  ensureWorldBuilt(nextStage);
   if (nextStage !== stage) {
     stageGroup.traverse(object => {
       if (object === floor || object === grid) return;
@@ -2484,7 +2440,6 @@ function updateEffects(dt: number) {
 function setReducedEffects(enabled: boolean) {
   if (reducedEffects === enabled) return;
   reducedEffects = enabled;
-  if (!worldBuilt) return;
   renderer.setPixelRatio(Math.min(devicePixelRatio, enabled ? 1.1 : pixelRatioLimit));
   renderer.setSize(innerWidth, innerHeight);
   fireworkPoints.visible = !enabled && !disableParticles;
@@ -2533,7 +2488,7 @@ function animate() {
   const now = performance.now() / 1000;
   if (menuScreen !== "none") {
     const menuNow = performance.now();
-    if (menuNow - lastMenuRender > 220) {
+    if (menuNow - lastMenuRender > 120) {
       lastMenuRender = menuNow;
       renderer.render(scene, camera);
     }
