@@ -1742,14 +1742,18 @@ function playCountdownBeep(go = false) {
   oscillator.stop(audioContext.currentTime + (go ? 0.34 : 0.18));
 }
 function requestStart() {
-  if (running || replaying || countdownEnd > 0 || playerProgress >= TOTAL_LAPS) return;
+  if (running || replaying || countdownEnd > 0) return;
   stopFinishBgm();
   armed = true;
   hideMenus();
-  startSfx();
-  bgm.load();
-  warmFinishBgm();
   countdownEnd = performance.now() / 1000 + 3.8;
+  try {
+    startSfx();
+    bgm.load();
+    warmFinishBgm();
+  } catch {
+    // Start the race even if audio initialization fails on this device.
+  }
 }
 function warmFinishBgm() {
   if (finishBgmWarmed) return;
@@ -2298,7 +2302,7 @@ function resolveRivalCollisions(now: number) {
     lateralVelocity += side * (2.2 + overlap * 2.8);
     yawError += side * (selectedCarType === "drift" ? 0.055 : 0.035);
     const impactSpeed = Math.max(0, playerSpeed - rival.speedMps);
-    playerSpeed *= longitudinalDistance > 0 ? THREE.MathUtils.clamp(0.78 - impactSpeed * 0.004, 0.58, 0.78) : 0.88;
+    playerSpeed *= longitudinalDistance > 0 ? THREE.MathUtils.clamp(0.92 - impactSpeed * 0.0012, 0.84, 0.92) : 0.94;
     rival.speedMps *= longitudinalDistance < 0 ? 0.76 : 0.9;
     rival.lane = THREE.MathUtils.clamp(rival.lane - side * 0.2, -TRACK_WIDTH * 0.42, TRACK_WIDTH * 0.42);
     lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.68, TRACK_WIDTH * 0.68);
