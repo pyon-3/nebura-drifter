@@ -483,7 +483,8 @@ function configureStage(config: StageConfig) {
 configureStage(stage);
 const MAX_SPEED_MPS = 288 / 3.6;
 const OVERLOAD_SPEED_MPS = 390 / 3.6;
-const OVERLOAD_DURATION = 5;
+const OVERLOAD_DURATION = 1;
+const OVERLOAD_CHARGES = 2;
 
 function trackFrame(u: number, lane = 0) {
   const wrapped = ((u % 1) + 1) % 1;
@@ -1311,7 +1312,7 @@ let lastPlayerEmit = 0;
 let lastReplayCapture = 0;
 let lastRivalCollision = -10;
 let overloadUntil = 0;
-let overloadUsed = false;
+let overloadCharges = OVERLOAD_CHARGES;
 type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number; yawError: number; yawRate: number };
 const replayFrames: ReplayFrame[] = [];
 type GhostFrame = { time: number; progress: number; lane: number; yaw: number };
@@ -1772,27 +1773,27 @@ function playOverloadSound() {
   });
 }
 function overloadActive(now = performance.now() / 1000) {
-  return overloadUsed && now < overloadUntil;
+  return now < overloadUntil;
 }
 function updateOverloadButton(now = performance.now() / 1000) {
   const active = overloadActive(now);
   overloadEl.classList.toggle("active", active);
-  overloadEl.classList.toggle("spent", overloadUsed && !active);
-  overloadValueEl.textContent = active ? `${Math.max(0, overloadUntil - now).toFixed(1)} SEC` : overloadUsed ? "SPENT" : "5.0 SEC";
+  overloadEl.classList.toggle("spent", overloadCharges === 0 && !active);
+  overloadValueEl.textContent = active ? `${Math.max(0, overloadUntil - now).toFixed(1)} SEC` : overloadCharges === 0 ? "SPENT" : `${overloadCharges} CHARGE${overloadCharges === 1 ? "" : "S"}`;
 }
 function activateOverload() {
-  if (!running || replaying || paused || overloadUsed) return;
+  if (!running || replaying || paused || overloadCharges === 0 || overloadActive()) return;
   try {
     startSfx();
     playOverloadSound();
   } catch {
     // Overload remains usable when audio is unavailable.
   }
-  overloadUsed = true;
+  overloadCharges--;
   overloadUntil = performance.now() / 1000 + OVERLOAD_DURATION;
   playerSpeed = Math.min(OVERLOAD_SPEED_MPS, playerSpeed + 12);
   haptic([20, 20, 45]);
-  showRadioCall("OVERLOAD // FIVE SECOND BURN", 0);
+  showRadioCall("OVERLOAD // ONE SECOND BURN", 0);
   updateOverloadButton();
 }
 function requestStart() {
@@ -1946,10 +1947,10 @@ addEventListener("keydown", e => {
   if (menuScreen === "title" && (e.code === "Enter" || e.code === "Space")) { showCourseSelect(); return; }
   if (menuScreen === "course" && e.code === "Enter") { switchStage(selectedStageIndex); requestStart(); return; }
   if (menuScreen !== "none") return;
-  if (["ArrowLeft", "ArrowRight", "KeyZ", "KeyX", "KeyC"].includes(e.code)) e.preventDefault();
+  if (["ArrowLeft", "ArrowRight", "KeyZ", "KeyX", "KeyN"].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (paused) return;
-  if (e.code === "KeyC") activateOverload();
+  if (e.code === "KeyN") activateOverload();
   else if (e.code === "KeyZ") requestStart();
   else arm();
 });
@@ -2022,7 +2023,7 @@ function setPaused(value: boolean) {
     if (countdownEnd > 0) countdownEnd += pauseDuration;
     if (replaying) replayStart += pauseDuration;
     if (finalLapUntil > 0) finalLapUntil += pauseDuration;
-    if (overloadUsed && overloadUntil > pauseStarted) overloadUntil += pauseDuration;
+    if (overloadUntil > pauseStarted) overloadUntil += pauseDuration;
     lastEmit += pauseDuration;
     lastPlayerEmit += pauseDuration;
     lastReplayCapture += pauseDuration;
@@ -2075,7 +2076,7 @@ function resetRace() {
   lapStartedAt = 0;
   lastRivalCollision = -10;
   overloadUntil = 0;
-  overloadUsed = false;
+  overloadCharges = OVERLOAD_CHARGES;
   wasOffRoad = false;
   previousDriftState = "grip";
   ghostCar.visible = Boolean(bestLap?.frames.length);
