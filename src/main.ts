@@ -2460,14 +2460,9 @@ function monitorMobilePerformance(nowMs: number) {
 
 function animate() {
   requestAnimationFrame(animate);
-  const frameNow = performance.now();
+  monitorMobilePerformance(performance.now());
   const dt = Math.min(clock.getDelta(), 0.04);
-  monitorMobilePerformance(frameNow);
-  const now = frameNow / 1000;
-  if (menuScreen !== "none") {
-    renderer.render(scene, camera);
-    return;
-  }
+  const now = performance.now() / 1000;
   if (paused) {
     renderer.render(scene, camera);
     return;
