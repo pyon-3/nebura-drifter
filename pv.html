@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NEBURA DRIFTER // PV</title>
+    <link rel="stylesheet" href="/src/pv.css" />
+  </head>
+  <body>
+    <div id="film">
+      <div id="grain"></div>
+      <div id="bars"></div>
+      <div id="caption">
+        <span id="eyebrow"></span>
+        <strong id="headline"></strong>
+        <span id="subline"></span>
+      </div>
+      <div id="courseCard">
+        <span id="courseNumber"></span>
+        <strong id="courseName"></strong>
+        <span id="courseMeta"></span>
+      </div>
+      <div id="progress"></div>
+      <button id="startFilm">
+        <span>NEBURA DRIFTER</span>
+        <strong>PLAY CONCEPT FILM</strong>
+        <small>THREE.JS REALTIME CINEMATIC</small>
+      </button>
+    </div>
+    <audio id="pvBgm" loop preload="auto" src="/kamikaze_rumble.mp3"></audio>
+    <script type="module" src="/src/pv.ts"></script>
+  </body>
+</html>
