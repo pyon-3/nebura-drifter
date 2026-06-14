@@ -32,7 +32,7 @@ h1{margin:0;text-align:center;font-size:clamp(45px,13vw,90px);line-height:.82;le
 #title p{margin:28px 0 45px;font-size:10px;letter-spacing:.3em;opacity:.72}
 #courseSelect h1{margin-bottom:18px}
 #stageSelect{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;width:min(96vw,720px);margin:-22px 0 20px;pointer-events:auto}.stage-card{display:flex;flex-direction:column;justify-content:center;gap:7px;min-width:0;padding:14px 7px;opacity:.48}.stage-card.selected{opacity:1;border-color:#ff5874aa;background:#210a16dd;box-shadow:0 0 28px #ff315033}.stage-card b{font-size:9px}.stage-card small{font-size:6px;letter-spacing:.08em;opacity:.6}
-button{border:1px solid #75edff88;background:#07101bbb;color:#d8fbff;padding:13px 24px;font:700 11px/1 monospace;letter-spacing:.2em;box-shadow:0 0 24px #2de5ff22}
+button{border:1px solid #75edff88;background:#07101bbb;color:#d8fbff;padding:13px 24px;font:700 11px/1 monospace;letter-spacing:.2em;box-shadow:0 0 24px #2de5ff22;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #title small{margin-top:18px;font-size:8px;letter-spacing:.2em;opacity:.42}
 #courseSelect small{margin-top:18px;font-size:8px;letter-spacing:.2em;opacity:.42}
 #goCourseSelect,#backToTitle{margin-top:8px}

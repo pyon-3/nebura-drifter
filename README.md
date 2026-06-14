@@ -8,9 +8,9 @@ The GitHub Pages deployment is generated automatically from `main`.
 
 ## Controls
 
-- Steer: `A` / `D` or arrow keys
-- Accelerate: `W` / up arrow
-- Brake: `S` / down arrow
+- Steer: left / right arrow keys
+- Accelerate: `Z`
+- Brake: `X`
 - Mobile: drag to steer and use the on-screen pedals
 
 ## Development

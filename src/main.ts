@@ -1777,46 +1777,48 @@ function playFinishBgm() {
   });
 }
 let selectedStageIndex = 0;
-goCourseSelectEl.addEventListener("pointerdown", e => {
-  e.stopPropagation();
-  e.preventDefault();
+function bindMenuPress(element: HTMLElement, handler: () => void) {
+  let lastPress = -Infinity;
+  const press = (event: Event) => {
+    const now = performance.now();
+    if (now - lastPress < 500) return;
+    lastPress = now;
+    event.stopPropagation();
+    if (event.cancelable) event.preventDefault();
+    handler();
+  };
+  element.addEventListener("pointerdown", press);
+  element.addEventListener("touchend", press, { passive: false });
+  element.addEventListener("click", press);
+}
+bindMenuPress(goCourseSelectEl, () => {
   showCourseSelect();
 });
 stageCards.forEach((card, index) => {
-  card.addEventListener("pointerdown", e => {
-    e.stopPropagation();
-    e.preventDefault();
+  bindMenuPress(card, () => {
     selectedStageIndex = index;
     stageCards.forEach((item, itemIndex) => item.classList.toggle("selected", itemIndex === selectedStageIndex));
   });
 });
 timeCards.forEach(card => {
-  card.addEventListener("pointerdown", e => {
-    e.stopPropagation();
-    e.preventDefault();
+  bindMenuPress(card, () => {
     timeMode = card.dataset.time === "dusk" ? "dusk" : "night";
     timeCards.forEach(item => item.classList.toggle("selected", item === card));
     resetVisualTheme();
   });
 });
 carCards.forEach(card => {
-  card.addEventListener("pointerdown", e => {
-    e.stopPropagation();
-    e.preventDefault();
+  bindMenuPress(card, () => {
     selectedCarType = card.dataset.car === "drift" ? "drift" : "grip";
     carCards.forEach(item => item.classList.toggle("selected", item === card));
     applySelectedCarType();
   });
 });
-enterGridEl.addEventListener("pointerdown", e => {
-  e.stopPropagation();
-  e.preventDefault();
+bindMenuPress(enterGridEl, () => {
   switchStage(selectedStageIndex);
   requestStart();
 });
-backToTitleEl.addEventListener("pointerdown", e => {
-  e.stopPropagation();
-  e.preventDefault();
+bindMenuPress(backToTitleEl, () => {
   showTitleScreen();
 });
 addEventListener("pointerdown", e => {
@@ -1868,9 +1870,10 @@ addEventListener("keydown", e => {
   if (menuScreen === "title" && (e.code === "Enter" || e.code === "Space")) { showCourseSelect(); return; }
   if (menuScreen === "course" && e.code === "Enter") { switchStage(selectedStageIndex); requestStart(); return; }
   if (menuScreen !== "none") return;
+  if (["ArrowLeft", "ArrowRight", "KeyZ", "KeyX"].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (paused) return;
-  if (e.code === "ArrowUp" || e.code === "KeyW") requestStart(); else arm();
+  if (e.code === "KeyZ") requestStart(); else arm();
 });
 addEventListener("keyup", e => keys.delete(e.code));
 function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
@@ -2464,9 +2467,9 @@ function animate() {
     renderer.render(scene, camera);
     return;
   }
-  const keySteer = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
-  const accelerating = touchGas || keys.has("ArrowUp") || keys.has("KeyW");
-  const braking = touchBrake || keys.has("ArrowDown") || keys.has("KeyS");
+  const keySteer = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
+  const accelerating = touchGas || keys.has("KeyZ");
+  const braking = touchBrake || keys.has("KeyX");
   if (countdownEnd > 0) {
     const remaining = countdownEnd - now;
     const value = remaining > 2.8 ? "3" : remaining > 1.8 ? "2" : remaining > 0.8 ? "1" : remaining > 0 ? "GO" : "";
