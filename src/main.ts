@@ -482,6 +482,8 @@ function configureStage(config: StageConfig) {
 }
 configureStage(stage);
 const MAX_SPEED_MPS = 288 / 3.6;
+const OVERLOAD_SPEED_MPS = 390 / 3.6;
+const OVERLOAD_DURATION = 5;
 
 function trackFrame(u: number, lane = 0) {
   const wrapped = ((u % 1) + 1) % 1;
@@ -1308,6 +1310,8 @@ let lastEmit = 0;
 let lastPlayerEmit = 0;
 let lastReplayCapture = 0;
 let lastRivalCollision = -10;
+let overloadUntil = 0;
+let overloadUsed = false;
 type ReplayFrame = { time: number; progress: number; lane: number; lateralVelocity: number; yawError: number; yawRate: number };
 const replayFrames: ReplayFrame[] = [];
 type GhostFrame = { time: number; progress: number; lane: number; yaw: number };
@@ -1339,6 +1343,8 @@ const steeringEl = document.querySelector<HTMLElement>("#steering")!;
 const steeringKnobEl = document.querySelector<HTMLElement>("#steeringKnob")!;
 const gasEl = document.querySelector<HTMLButtonElement>("#gas")!;
 const brakeEl = document.querySelector<HTMLButtonElement>("#brake")!;
+const overloadEl = document.querySelector<HTMLButtonElement>("#overload")!;
+const overloadValueEl = overloadEl.querySelector<HTMLElement>("small")!;
 const bgmTracks = [
   document.querySelector<HTMLAudioElement>("#bgm1")!,
   document.querySelector<HTMLAudioElement>("#bgm2")!,
@@ -1741,6 +1747,54 @@ function playCountdownBeep(go = false) {
   oscillator.start();
   oscillator.stop(audioContext.currentTime + (go ? 0.34 : 0.18));
 }
+function playOverloadSound() {
+  if (!audioContext || !sfxMaster) return;
+  const start = audioContext.currentTime;
+  const output = audioContext.createGain();
+  const highpass = audioContext.createBiquadFilter();
+  highpass.type = "highpass";
+  highpass.frequency.value = 520;
+  output.gain.setValueAtTime(0.001, start);
+  output.gain.exponentialRampToValueAtTime(0.34, start + 0.018);
+  output.gain.exponentialRampToValueAtTime(0.001, start + 0.72);
+  output.connect(highpass).connect(sfxMaster);
+  [190, 760, 1710].forEach((frequency, index) => {
+    const oscillator = audioContext!.createOscillator();
+    const gain = audioContext!.createGain();
+    oscillator.type = index === 0 ? "sawtooth" : "square";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    oscillator.frequency.exponentialRampToValueAtTime(frequency * (index === 0 ? 2.1 : 0.72), start + 0.48);
+    gain.gain.setValueAtTime([0.28, 0.13, 0.07][index], start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.64);
+    oscillator.connect(gain).connect(output);
+    oscillator.start(start);
+    oscillator.stop(start + 0.7);
+  });
+}
+function overloadActive(now = performance.now() / 1000) {
+  return overloadUsed && now < overloadUntil;
+}
+function updateOverloadButton(now = performance.now() / 1000) {
+  const active = overloadActive(now);
+  overloadEl.classList.toggle("active", active);
+  overloadEl.classList.toggle("spent", overloadUsed && !active);
+  overloadValueEl.textContent = active ? `${Math.max(0, overloadUntil - now).toFixed(1)} SEC` : overloadUsed ? "SPENT" : "5.0 SEC";
+}
+function activateOverload() {
+  if (!running || replaying || paused || overloadUsed) return;
+  try {
+    startSfx();
+    playOverloadSound();
+  } catch {
+    // Overload remains usable when audio is unavailable.
+  }
+  overloadUsed = true;
+  overloadUntil = performance.now() / 1000 + OVERLOAD_DURATION;
+  playerSpeed = Math.min(OVERLOAD_SPEED_MPS, playerSpeed + 12);
+  haptic([20, 20, 45]);
+  showRadioCall("OVERLOAD // FIVE SECOND BURN", 0);
+  updateOverloadButton();
+}
 function requestStart() {
   if (running || replaying || countdownEnd > 0) return;
   stopFinishBgm();
@@ -1892,10 +1946,12 @@ addEventListener("keydown", e => {
   if (menuScreen === "title" && (e.code === "Enter" || e.code === "Space")) { showCourseSelect(); return; }
   if (menuScreen === "course" && e.code === "Enter") { switchStage(selectedStageIndex); requestStart(); return; }
   if (menuScreen !== "none") return;
-  if (["ArrowLeft", "ArrowRight", "KeyZ", "KeyX"].includes(e.code)) e.preventDefault();
+  if (["ArrowLeft", "ArrowRight", "KeyZ", "KeyX", "KeyC"].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (paused) return;
-  if (e.code === "KeyZ") requestStart(); else arm();
+  if (e.code === "KeyC") activateOverload();
+  else if (e.code === "KeyZ") requestStart();
+  else arm();
 });
 addEventListener("keyup", e => keys.delete(e.code));
 function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
@@ -1907,6 +1963,16 @@ function bindPedal(el: HTMLButtonElement, set: (value: boolean) => void) {
 }
 bindPedal(gasEl, value => { touchGas = value; });
 bindPedal(brakeEl, value => { touchBrake = value; });
+overloadEl.addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  e.preventDefault();
+  activateOverload();
+});
+overloadEl.addEventListener("touchstart", e => {
+  e.stopPropagation();
+  e.preventDefault();
+  activateOverload();
+}, { passive: false });
 skipReplayEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); endReplay(); });
 restartRaceEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); restartRace(); });
 pauseButtonEl.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); setPaused(true); });
@@ -1956,6 +2022,7 @@ function setPaused(value: boolean) {
     if (countdownEnd > 0) countdownEnd += pauseDuration;
     if (replaying) replayStart += pauseDuration;
     if (finalLapUntil > 0) finalLapUntil += pauseDuration;
+    if (overloadUsed && overloadUntil > pauseStarted) overloadUntil += pauseDuration;
     lastEmit += pauseDuration;
     lastPlayerEmit += pauseDuration;
     lastReplayCapture += pauseDuration;
@@ -2007,6 +2074,8 @@ function resetRace() {
   lapFrames.length = 0;
   lapStartedAt = 0;
   lastRivalCollision = -10;
+  overloadUntil = 0;
+  overloadUsed = false;
   wasOffRoad = false;
   previousDriftState = "grip";
   ghostCar.visible = Boolean(bestLap?.frames.length);
@@ -2040,6 +2109,7 @@ function resetRace() {
   steeringEl.classList.remove("active");
   gasEl.classList.remove("active");
   brakeEl.classList.remove("active");
+  updateOverloadButton();
   resetVisualTheme();
   if (!finishHandled) showTitleScreen();
 }
@@ -2236,6 +2306,8 @@ function updateArcadeDrift(dt: number, accelerating: boolean, braking: boolean) 
 }
 
 function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean) {
+  const overloaded = overloadActive();
+  const speedLimit = overloaded ? OVERLOAD_SPEED_MPS : Math.max(MAX_SPEED_MPS, playerSpeed);
   const speedRatio = THREE.MathUtils.clamp(playerSpeed / MAX_SPEED_MPS, 0, 1);
   const steerLimit = vehicle.maxSteer * THREE.MathUtils.lerp(1, 0.27, speedRatio);
   const stabilitySteer = THREE.MathUtils.clamp(-yawError * 0.58 - yawRate * 0.16, -0.22, 0.22) * speedRatio;
@@ -2263,12 +2335,12 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const frontForce = THREE.MathUtils.clamp(-vehicle.frontCornerStiffness * frontSlip, -frontLimit, frontLimit);
   const rearForce = THREE.MathUtils.clamp(-vehicle.rearCornerStiffness * rearSlip, -rearLimit, rearLimit);
 
-  const engine = accelerating ? vehicle.engineForce * (1 - speedRatio * speedRatio * 0.38) : 0;
+  const engine = (overloaded || accelerating && playerSpeed < MAX_SPEED_MPS ? vehicle.engineForce * (1 - speedRatio * speedRatio * 0.38) : 0) * (overloaded ? 2.85 : 1);
   const brake = braking ? vehicle.brakeForce : 0;
-  const drag = vehicle.rollingResistance * playerSpeed + vehicle.aerodynamicDrag * playerSpeed * playerSpeed;
+  const drag = (vehicle.rollingResistance * playerSpeed + vehicle.aerodynamicDrag * playerSpeed * playerSpeed) * (overloaded ? 0.42 : 1);
   const previousSpeed = playerSpeed;
-  const forwardForce = engine - brake - drag - (offRoad ? 3200 : 0);
-  playerSpeed = THREE.MathUtils.clamp(playerSpeed + (forwardForce / vehicle.mass) * dt, 0, MAX_SPEED_MPS);
+  const forwardForce = engine - brake - drag - (offRoad ? overloaded ? 700 : 3200 : 0);
+  playerSpeed = THREE.MathUtils.clamp(playerSpeed + (forwardForce / vehicle.mass) * dt, 0, speedLimit);
   longitudinalAccel = (playerSpeed - previousSpeed) / Math.max(dt, 0.001);
 
   if (playerSpeed < 1.5) {
@@ -2314,13 +2386,13 @@ function resolveRivalCollisions(now: number) {
     if (Math.abs(longitudinalDistance) > halfLength * 2 || Math.abs(lateralDistance) > halfWidth * 1.75) continue;
     const side = Math.abs(lateralDistance) > 0.12 ? -Math.sign(lateralDistance) : Math.sign(steer || 1);
     const overlap = 1 - Math.abs(lateralDistance) / (halfWidth * 1.75);
-    lane += side * (0.28 + overlap * 0.34);
-    lateralVelocity += side * (2.2 + overlap * 2.8);
-    yawError += side * (selectedCarType === "drift" ? 0.055 : 0.035);
+    lane += side * (0.12 + overlap * 0.16);
+    lateralVelocity += side * (0.7 + overlap * 1.1);
+    yawError += side * (selectedCarType === "drift" ? 0.022 : 0.014);
     const impactSpeed = Math.max(0, playerSpeed - rival.speedMps);
-    playerSpeed *= longitudinalDistance > 0 ? THREE.MathUtils.clamp(0.92 - impactSpeed * 0.0012, 0.84, 0.92) : 0.94;
-    rival.speedMps *= longitudinalDistance < 0 ? 0.76 : 0.9;
-    rival.lane = THREE.MathUtils.clamp(rival.lane - side * 0.2, -TRACK_WIDTH * 0.42, TRACK_WIDTH * 0.42);
+    if (!overloadActive(now)) playerSpeed *= longitudinalDistance > 0 ? THREE.MathUtils.clamp(0.99 - impactSpeed * 0.00015, 0.975, 0.99) : 0.992;
+    rival.speedMps *= longitudinalDistance < 0 ? 0.94 : 0.97;
+    rival.lane = THREE.MathUtils.clamp(rival.lane - side * 0.12, -TRACK_WIDTH * 0.42, TRACK_WIDTH * 0.42);
     lane = THREE.MathUtils.clamp(lane, -TRACK_WIDTH * 0.68, TRACK_WIDTH * 0.68);
     lastRivalCollision = now;
     haptic([18, 22, 18]);
@@ -2536,6 +2608,7 @@ function animate() {
     }
   }
   const speedRatio = playerSpeed / MAX_SPEED_MPS;
+  updateOverloadButton(now);
   const slipAngle = Math.atan2(lateralVelocity, Math.max(1, playerSpeed));
   const drifting = driftState !== "grip" || speedRatio > 0.3 && Math.abs(dynamics.rearSlip) > 0.09;
   if (running && drifting) score += Math.abs(lateralVelocity) * dt * 155;
@@ -2690,7 +2763,7 @@ function animate() {
   camera.updateProjectionMatrix();
   const displaySpeed = Math.round(playerSpeed * 3.6);
   speedEl.textContent = String(displaySpeed).padStart(3, "0");
-  speedBarEl.style.width = `${speedRatio * 100}%`;
+  speedBarEl.style.width = `${Math.min(100, speedRatio * 100)}%`;
   const position = playerPosition();
   positionEl.textContent = String(position);
   const lap = Math.min(TOTAL_LAPS, Math.floor(playerProgress) + 1);
@@ -2727,8 +2800,9 @@ function animate() {
   } else if (countdownEnd === 0) {
     announcementEl.className = "";
   }
-  statusEl.style.opacity = drifting || armed && !running && countdownEnd === 0 || finished ? "1" : "0";
-  statusEl.textContent = replaying ? "REPLAY" : finished ? "RACE COMPLETE" : armed && !running ? "HOLD GAS TO START" : drifting ? "DRIFT // HOLD THE LINE" : "CHASE THE AFTERIMAGE";
+  const overloaded = overloadActive(now);
+  statusEl.style.opacity = overloaded || drifting || armed && !running && countdownEnd === 0 || finished ? "1" : "0";
+  statusEl.textContent = replaying ? "REPLAY" : finished ? "RACE COMPLETE" : overloaded ? `OVERLOAD // ${Math.max(0, overloadUntil - now).toFixed(1)} SEC` : armed && !running ? "HOLD GAS TO START" : drifting ? "DRIFT // HOLD THE LINE" : "CHASE THE AFTERIMAGE";
   renderer.render(scene, camera);
 }
 animate();
