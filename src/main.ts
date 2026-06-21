@@ -1435,20 +1435,26 @@ function patchEffectTexturesAndVisibility() {
 patchEffectTexturesAndVisibility();
 
 // Load car pack (Sport / Sedan / Compact) and hot-swap all cars.
-new GLTFLoader().load("./models/car_pack3.glb", g => {
-  _pack3Scene = g.scene;
-  const playerColor = selectedCarType === "drift" ? 0x7b183d : 0x0a5164;
-  const playerIdx = selectedCarType === "drift" ? 0 : 3;
-  const newPlayer = makePack3Car(playerIdx, playerColor, false, selectedCarType);
-  newPlayer.position.copy(playerCar.position); newPlayer.quaternion.copy(playerCar.quaternion);
-  scene.add(newPlayer); scene.remove(playerCar); disposeGroup(playerCar); playerCar = newPlayer;
-  rivals.forEach((rv, i) => {
-    const nc = makePack3Car(i % 3, rivalColors[i], true, rv.carType);
-    nc.position.copy(rv.car.position); nc.quaternion.copy(rv.car.quaternion);
-    scene.add(nc); scene.remove(rv.car); disposeGroup(rv.car); rv.car = nc;
-  });
-  patchEffectTexturesAndVisibility();
-});
+{
+  const _glbSrc: unknown = "./models/car_pack3.glb";
+  const loader = new GLTFLoader();
+  const onGlb = (g: { scene: THREE.Group }) => {
+    _pack3Scene = g.scene;
+    const playerColor = selectedCarType === "drift" ? 0x7b183d : 0x0a5164;
+    const playerIdx = selectedCarType === "drift" ? 0 : 3;
+    const newPlayer = makePack3Car(playerIdx, playerColor, false, selectedCarType);
+    newPlayer.position.copy(playerCar.position); newPlayer.quaternion.copy(playerCar.quaternion);
+    scene.add(newPlayer); scene.remove(playerCar); disposeGroup(playerCar); playerCar = newPlayer;
+    rivals.forEach((rv, i) => {
+      const nc = makePack3Car(i % 3, rivalColors[i], true, rv.carType);
+      nc.position.copy(rv.car.position); nc.quaternion.copy(rv.car.quaternion);
+      scene.add(nc); scene.remove(rv.car); disposeGroup(rv.car); rv.car = nc;
+    });
+    patchEffectTexturesAndVisibility();
+  };
+  if (_glbSrc instanceof ArrayBuffer) loader.parse(_glbSrc, "", onGlb);
+  else loader.load(_glbSrc as string, onGlb);
+}
 
 function updateRibbon(
   mesh: THREE.Mesh,
