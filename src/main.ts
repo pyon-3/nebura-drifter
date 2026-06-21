@@ -1452,8 +1452,13 @@ patchEffectTexturesAndVisibility();
     });
     patchEffectTexturesAndVisibility();
   };
-  if (_glbSrc instanceof ArrayBuffer) loader.parse(_glbSrc, "", onGlb);
-  else loader.load(_glbSrc as string, onGlb);
+  if (_glbSrc instanceof Promise) {
+    (_glbSrc as Promise<ArrayBuffer>).then(buf => loader.parse(buf, "", onGlb));
+  } else if (_glbSrc instanceof ArrayBuffer) {
+    loader.parse(_glbSrc, "", onGlb);
+  } else {
+    loader.load(_glbSrc as string, onGlb);
+  }
 }
 
 function updateRibbon(

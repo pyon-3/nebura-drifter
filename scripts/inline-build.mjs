@@ -8,11 +8,11 @@ const assetPath = path => path.replace(/^\.?\//, "");
 const css = await readFile(new URL(`../dist/${assetPath(cssMatch[1])}`, import.meta.url), "utf8");
 let js = await readFile(new URL(`../dist/${assetPath(jsMatch[1])}`, import.meta.url), "utf8");
 
-// Embed car pack GLB as ArrayBuffer IIFE — avoids iOS Safari fetch() limit on large data URIs.
+// Embed GLB as fetch(data:) Promise<ArrayBuffer> — browser-native decode, non-blocking on iOS.
 const glbData = await readFile(new URL("../public/models/car_pack3.glb", import.meta.url));
 const glbBase64 = glbData.toString("base64");
-const glbBufExpr = `(()=>{const s=atob("${glbBase64}");const b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b.buffer})()`;
-js = js.replace(/"\.\/models\/car_pack3\.glb"/g, glbBufExpr);
+const glbExpr = `fetch("data:application/octet-stream;base64,${glbBase64}").then(r=>r.arrayBuffer())`;
+js = js.replace(/"\.\/models\/car_pack3\.glb"/g, glbExpr);
 
 html = html.replace(cssMatch[0], () => `<style>${css}</style>`);
 html = html.replace(jsMatch[0], () => `<script type="module">${js}</script>`);
