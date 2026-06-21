@@ -539,6 +539,10 @@ let TRACK_LENGTH_METERS = stage.targetLengthMeters;
 let WORLD_TO_METERS = stage.worldToMeters;
 let TOTAL_LAPS = stage.laps;
 let TRACK_FLOOR_Y = -0.5;
+const BANK_FACTOR = 30;
+const MAX_BANK = 0.34; // ~20°
+const BANK_LUT_N = 512;
+let _bankLUT = new Float32Array(BANK_LUT_N + 1);
 function configureStage(config: StageConfig) {
   stage = config;
   const points = stage.controlPoints.map(([x, y, z]) => new THREE.Vector3(x, y, z));
@@ -581,11 +585,6 @@ function trackCurvature(u: number) {
   const a1 = Math.atan2(after.x, after.z);
   return wrapAngle(a1 - a0) / (TRACK_LENGTH_METERS * du * 2);
 }
-
-const BANK_FACTOR = 30;
-const MAX_BANK = 0.34; // ~20°
-const BANK_LUT_N = 512;
-let _bankLUT = new Float32Array(BANK_LUT_N + 1);
 
 function buildBankingLUT() {
   const du = 0.01; // ~20m smoothing window
