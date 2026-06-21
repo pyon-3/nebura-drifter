@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import "./style.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
@@ -734,6 +735,38 @@ function makeCarSection(
   return geometry;
 }
 
+// Like makeCarSection but front/rear faces can have independent Y extents,
+// enabling proper sloped hoods, raked windshields, and fastback rear windows.
+function makeCarWedge(
+  frontZ: number, rearZ: number,
+  frontBottomY: number, frontTopY: number,
+  rearBottomY: number, rearTopY: number,
+  frontBottomHW: number, rearBottomHW: number,
+  frontTopHW: number, rearTopHW: number,
+) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute([
+    -frontBottomHW, frontBottomY, frontZ,
+     frontBottomHW, frontBottomY, frontZ,
+    -frontTopHW,    frontTopY,    frontZ,
+     frontTopHW,    frontTopY,    frontZ,
+    -rearBottomHW,  rearBottomY,  rearZ,
+     rearBottomHW,  rearBottomY,  rearZ,
+    -rearTopHW,     rearTopY,     rearZ,
+     rearTopHW,     rearTopY,     rearZ,
+  ], 3));
+  geometry.setIndex([
+    0, 1, 3, 0, 3, 2,
+    5, 4, 6, 5, 6, 7,
+    4, 0, 2, 4, 2, 6,
+    1, 5, 7, 1, 7, 3,
+    2, 3, 7, 2, 7, 6,
+    4, 5, 1, 4, 1, 0,
+  ]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 function mergeCarBodyParts(car: THREE.Group) {
   const groups = new Map<THREE.Material, THREE.Mesh[]>();
   for (const child of [...car.children]) {
@@ -768,7 +801,6 @@ function mergeCarBodyParts(car: THREE.Group) {
 }
 
 type CarType = "grip" | "drift";
-type CarModel = "simple" | "detailed";
 
 function makeDetailedCar(bodyColor: number, rival = false, carType: CarType = "grip") {
   const car = new THREE.Group();
@@ -1021,72 +1053,181 @@ function makeDetailedCar(bodyColor: number, rival = false, carType: CarType = "g
   return car;
 }
 
+// Ridge Racer Revolution style GT coupe (F/A Racing proportions).
+// Lower body = 7 connected wedge pieces forming proper fender arches.
+// Front fender peak: halfwidth 0.92, top y=0.78.  Rear fender peak: halfwidth 0.94, top y=0.80.
+// Tires: x=±0.78, radius=0.36 → outer edge 0.89, top y=0.72 (inside both arches ✓).
 function makeCar(bodyColor: number, rival = false, carType: CarType = "grip") {
   const car = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.38, metalness: 0.58, flatShading: true });
-  const glassMat = new THREE.MeshStandardMaterial({ color: 0x101928, roughness: 0.2, metalness: 0.48, flatShading: true });
-  const darkMat = new THREE.MeshBasicMaterial({ color: 0x08090c });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0x7e858b, roughness: 0.45, metalness: 0.65, flatShading: true });
-  const accentMat = new THREE.MeshBasicMaterial({ color: rival ? 0xffd744 : carType === "drift" ? 0xffffff : 0x52efff });
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2244 });
 
-  car.add(new THREE.Mesh(makeCarSection(1.82, -1.72, 0.22, 0.6, 0.68, 0.77, 0.89, 0.88), bodyMat));
-  car.add(new THREE.Mesh(makeCarSection(1.7, 0.38, 0.57, 0.72, 0.86, 0.88, 0.64, 0.78), bodyMat));
-  car.add(new THREE.Mesh(makeCarSection(0.34, -1.22, 0.66, 1.18, 0.77, 0.78, 0.48, 0.58), glassMat));
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.06, 0.7), bodyMat);
-  roof.position.set(0, 1.2, -0.48);
+  const bodyMat  = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.30, metalness: 0.74, flatShading: true });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x0b1e30, roughness: 0.12, metalness: 0.55, flatShading: true });
+  const darkMat  = new THREE.MeshBasicMaterial({ color: 0x030507 });
+  const trimMat  = new THREE.MeshStandardMaterial({ color: 0x090e14, roughness: 0.42, metalness: 0.78, flatShading: true });
+  const tireMat  = new THREE.MeshStandardMaterial({ color: 0x080a0c, roughness: 0.92, metalness: 0.04, flatShading: true });
+  const rimMat   = new THREE.MeshStandardMaterial({ color: 0x9ab8c8, roughness: 0.22, metalness: 0.94, flatShading: true });
+  const headMat  = new THREE.MeshBasicMaterial({ color: 0xcef6ff });
+  const tailMat  = new THREE.MeshBasicMaterial({ color: useMobileSafe ? 0xff2244 : 0x5b0716 });
+  const accentMat = new THREE.MeshBasicMaterial({ color: rival ? 0xffd744 : carType === "drift" ? 0xff3157 : 0x48e8ff });
+
+  // ── LOWER BODY: 7 connected wedges, each edge-matched to neighbours ────────
+  // makeCarWedge(frontZ, rearZ, fBotY, fTopY, rBotY, rTopY, fBotHW, rBotHW, fTopHW, rTopHW)
+
+  // 1. Front nosecone  z: 1.90 → 1.44
+  car.add(new THREE.Mesh(makeCarWedge( 1.90,  1.44, 0.08, 0.44, 0.08, 0.48, 0.68, 0.80, 0.80, 0.90), bodyMat));
+
+  // 2. Front fender arch – rising to peak at z=0.96 (front wheel centre)
+  //    Peak: halfwidth 0.92, top y=0.78  →  tire outer 0.89 < 0.92 ✓, tire top 0.72 < 0.78 ✓
+  car.add(new THREE.Mesh(makeCarWedge( 1.44,  0.96, 0.08, 0.48, 0.08, 0.78, 0.80, 0.92, 0.90, 0.92), bodyMat));
+
+  // 3. Front fender arch – falling from peak
+  car.add(new THREE.Mesh(makeCarWedge( 0.96,  0.48, 0.08, 0.78, 0.08, 0.46, 0.92, 0.80, 0.92, 0.88), bodyMat));
+
+  // 4. Door sill between fender arches  z: 0.48 → -0.48  (narrower, lower)
+  car.add(new THREE.Mesh(makeCarWedge( 0.48, -0.48, 0.08, 0.46, 0.08, 0.46, 0.80, 0.82, 0.88, 0.88), bodyMat));
+
+  // 5. Rear fender arch – rising to peak at z=-0.96 (rear wheel centre)
+  //    Peak: halfwidth 0.94, top y=0.80  (slightly wider/taller than front – classic GT proportion)
+  car.add(new THREE.Mesh(makeCarWedge(-0.48, -0.96, 0.08, 0.46, 0.08, 0.80, 0.82, 0.94, 0.88, 0.94), bodyMat));
+
+  // 6. Rear fender arch – falling from peak
+  car.add(new THREE.Mesh(makeCarWedge(-0.96, -1.44, 0.08, 0.80, 0.08, 0.52, 0.94, 0.84, 0.94, 0.90), bodyMat));
+
+  // 7. Rear tail section  z: -1.44 → -1.90
+  car.add(new THREE.Mesh(makeCarWedge(-1.44, -1.90, 0.08, 0.52, 0.08, 0.38, 0.84, 0.78, 0.90, 0.82), bodyMat));
+
+  // ── UPPER BODY ────────────────────────────────────────────────────────────
+  // Hood – sits above fender arches, narrower (shoulders visible from above)
+  car.add(new THREE.Mesh(makeCarWedge( 1.90,  0.22, 0.44, 0.52, 0.44, 0.66, 0.70, 0.76, 0.66, 0.72), bodyMat));
+  // Windshield – steeply raked
+  car.add(new THREE.Mesh(makeCarWedge( 0.22, -0.30, 0.62, 0.66, 0.62, 0.92, 0.70, 0.66, 0.64, 0.56), glassMat));
+  // Short flat roof
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.10, 0.036, 0.44), bodyMat);
+  roof.position.set(0, 0.921, -0.30);
   car.add(roof);
+  // Fastback rear window
+  car.add(new THREE.Mesh(makeCarWedge(-0.30, -0.86, 0.56, 0.92, 0.50, 0.56, 0.68, 0.78, 0.54, 0.76), glassMat));
+  // Rear engine deck (centre, flanked by tall rear fender arches – mid-engine GT look)
+  car.add(new THREE.Mesh(makeCarWedge(-0.86, -1.44, 0.48, 0.52, 0.48, 0.50, 0.78, 0.82, 0.76, 0.84), bodyMat));
 
-  const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.13, 0.22), darkMat);
-  bumper.position.set(0, 0.25, 1.76);
-  car.add(bumper);
-  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.15, 0.03), darkMat);
-  grille.position.set(0, 0.4, 1.88);
-  car.add(grille);
+  // ── AERO ──────────────────────────────────────────────────────────────────
+  // Front splitter
+  const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.050, 0.26), trimMat);
+  splitter.position.set(0, 0.11, 1.82);
+  car.add(splitter);
+  // Side skirts (door sill area only, between fender arches)
+  for (const x of [-0.88, 0.88]) {
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.10, 0.92), trimMat);
+    skirt.position.set(x, 0.13, 0.0);
+    car.add(skirt);
+  }
+  // Rear diffuser
+  car.add(new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.13, 0.20), trimMat)).position.set(0, 0.18, -1.86);
 
+  // ── FRONT DETAIL ──────────────────────────────────────────────────────────
+  // Grille
+  car.add(new THREE.Mesh(new THREE.BoxGeometry(1.30, 0.10, 0.030), darkMat)).position.set(0, 0.26, 1.905);
+  // Headlights – wide flat strips
   for (const x of [-0.54, 0.54]) {
-    const headlight = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.12, 0.04), new THREE.MeshBasicMaterial({ color: 0xc9f8ff }));
-    headlight.position.set(x, 0.58, 1.84);
-    car.add(headlight);
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.13, 0.04), tailMat);
-    tail.position.set(x, 0.57, -1.76);
-    car.add(tail);
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.046, 0.22), headMat);
+    lamp.position.set(x, 0.44, 1.54); lamp.rotation.x = -0.04; car.add(lamp);
   }
 
-  for (const z of [-0.92, 1.02]) {
-    for (const x of [-0.91, 0.91]) {
-      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.24, 12), darkMat);
-      tire.rotation.z = Math.PI / 2;
-      tire.position.set(x, 0.34, z);
-      car.add(tire);
-      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.25, 8), rimMat);
-      rim.rotation.z = Math.PI / 2;
-      rim.position.set(x, 0.34, z);
-      car.add(rim);
+  // ── REAR DETAIL ───────────────────────────────────────────────────────────
+  car.add(new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.20, 0.050), darkMat)).position.set(0, 0.40, -1.911);
+  const tailMats: THREE.MeshBasicMaterial[] = [];
+  for (const x of [-0.54, -0.27, 0.27, 0.54]) {
+    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.082, 0.030), tailMat);
+    tl.position.set(x, 0.48, -1.908); car.add(tl); tailMats.push(tailMat);
+  }
+
+  // ── WHEELS ────────────────────────────────────────────────────────────────
+  // radius 0.36 → top y=0.72; fender tops 0.78/0.80 cover it ✓
+  // x=±0.78: outer edge 0.78+0.11=0.89 < fender halfwidths 0.92/0.94 ✓
+  for (const [x, z] of [[-0.78, -0.96], [0.78, -0.96], [-0.78, 0.96], [0.78, 0.96]] as [number, number][]) {
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.22, 16), tireMat);
+    tire.rotation.z = Math.PI / 2; tire.position.set(x, 0.36, z); car.add(tire);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.225, 10), rimMat);
+    rim.rotation.z = Math.PI / 2; rim.position.set(x, 0.36, z); car.add(rim);
+  }
+
+  // ── REAR WING ─────────────────────────────────────────────────────────────
+  const wingW = carType === "drift" ? 2.06 : 1.66;
+  const wingY = carType === "drift" ? 0.90 : 0.76;
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(wingW, 0.062, 0.34), trimMat);
+  wing.position.set(0, wingY, -1.52); wing.rotation.x = -0.10; car.add(wing);
+  for (const x of [-0.44, 0.44]) {
+    const stay = new THREE.Mesh(new THREE.BoxGeometry(0.050, carType === "drift" ? 0.44 : 0.26, 0.064), trimMat);
+    stay.position.set(x, carType === "drift" ? 0.68 : 0.62, -1.52); car.add(stay);
+  }
+
+  // ── DRIFT EXTRAS ──────────────────────────────────────────────────────────
+  if (carType === "drift") {
+    for (const x of [-0.92, 0.92]) {
+      const canard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.032, 0.36), accentMat);
+      canard.position.set(x, 0.14, 1.50); canard.rotation.y = x < 0 ? -0.22 : 0.22; car.add(canard);
     }
   }
 
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.018, 1.12), accentMat);
-  stripe.position.set(0, 0.72, 1.02);
-  car.add(stripe);
-  const wingWidth = carType === "drift" ? 2.28 : 1.82;
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(wingWidth, 0.075, carType === "drift" ? 0.48 : 0.34), darkMat);
-  wing.position.set(0, carType === "drift" ? 1.24 : 1.04, -1.42);
-  car.add(wing);
-  for (const x of [-0.48, 0.48]) {
-    const stayHeight = carType === "drift" ? 0.54 : 0.3;
-    const stay = new THREE.Mesh(new THREE.BoxGeometry(0.065, stayHeight, 0.08), darkMat);
-    stay.position.set(x, carType === "drift" ? 0.96 : 0.88, -1.42);
-    car.add(stay);
+  const spillMaterial = new THREE.MeshBasicMaterial({ color: 0xff183d, transparent: true, opacity: 0, depthWrite: false });
+  car.userData.tailLights = { coreMaterials: [], haloMaterials: [], sprites: [], spillMaterial, intensity: 0.45, rival, solidMaterials: tailMats };
+  car.userData.carType = carType;
+  mergeCarBodyParts(car);
+  return car;
+}
+
+// Generic car pack: Sport (idx 0) / Sedan (idx 1) / Compact (idx 2).
+// Body / Glass / Optics are separate meshes → glass colour is independent from body.
+// All geometry pre-transformed to Three.js space (mm→m, Z-up→Y-up, front=+Z).
+let _pack3Scene: THREE.Group | null = null;
+
+const _pack3Cfg = [
+  // frontZ/rearZ tuned from GLB bounds
+  // Generic pack: Sport Z=-1.74~1.86, Sedan Z=-2.00~2.01, Compact Z=-1.49~1.50
+  // Lux pack:     LuxSedan Z=-1.90~1.70
+  { name: "Sport",    solidBody: false, trackX: 0.60, frontZ: +1.16, rearZ: -1.09, wheelR: 0.245 },
+  { name: "Sedan",    solidBody: false, trackX: 0.65, frontZ: +1.26, rearZ: -1.35, wheelR: 0.265 },
+  { name: "Compact",  solidBody: false, trackX: 0.58, frontZ: +0.95, rearZ: -0.99, wheelR: 0.270 },
+  { name: "LuxSedan", solidBody: true,  trackX: 0.56, frontZ: +0.98, rearZ: -1.43, wheelR: 0.240 },
+];
+
+function makePack3Car(carIdx: number, _bodyColor: number, rival: boolean, carType: CarType): THREE.Group {
+  if (!_pack3Scene) return makeCar(_bodyColor, rival, carType);
+  const cfg = _pack3Cfg[carIdx];
+  const car = new THREE.Group();
+
+  // Glass uses a custom semi-transparent material; Body/Optics use the GLB's embedded texture materials
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x051828, roughness: 0.05, metalness: 0.10,
+    transparent: true, opacity: 0.60, depthWrite: false,
+  });
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x0d1014, roughness: 0.90, metalness: 0.08, flatShading: true });
+  const rimMat  = new THREE.MeshStandardMaterial({ color: 0x9ab8c8, roughness: 0.22, metalness: 0.94, flatShading: true });
+
+  for (const part of ["Body", "Optics", "Glass"]) {
+    const obj = _pack3Scene.getObjectByName(`${cfg.name}_${part}`);
+    if (!(obj instanceof THREE.Mesh)) continue;
+    let mat: THREE.Material;
+    if (part === "Glass") {
+      mat = glassMat;
+    } else if (part === "Body" && cfg.solidBody) {
+      mat = new THREE.MeshStandardMaterial({ color: _bodyColor, roughness: 0.28, metalness: 0.60, flatShading: true });
+    } else {
+      mat = (obj.material as THREE.Material).clone();
+    }
+    car.add(new THREE.Mesh(obj.geometry, mat));
   }
-  if (carType === "drift") {
-    car.scale.set(1.05, 0.94, 1.03);
+
+  for (const [x, z] of [[-cfg.trackX, cfg.frontZ], [cfg.trackX, cfg.frontZ], [-cfg.trackX, cfg.rearZ], [cfg.trackX, cfg.rearZ]] as [number,number][]) {
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(cfg.wheelR, cfg.wheelR, 0.20, 16), tireMat);
+    tire.rotation.z = Math.PI / 2; tire.position.set(x, cfg.wheelR, z); car.add(tire);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(cfg.wheelR * 0.65, cfg.wheelR * 0.65, 0.205, 10), rimMat);
+    rim.rotation.z = Math.PI / 2; rim.position.set(x, cfg.wheelR, z); car.add(rim);
   }
 
   const spillMaterial = new THREE.MeshBasicMaterial({ color: 0xff183d, transparent: true, opacity: 0, depthWrite: false });
-  car.userData.tailLights = { coreMaterials: [], haloMaterials: [], sprites: [], spillMaterial, intensity: 0.45, rival, solidMaterials: [tailMat] };
+  car.userData.tailLights = { coreMaterials: [], haloMaterials: [], sprites: [], spillMaterial, intensity: 0.45, rival, solidMaterials: [] };
   car.userData.carType = carType;
-  mergeCarBodyParts(car);
   return car;
 }
 
@@ -1099,19 +1240,16 @@ const ghostCar = new THREE.LineSegments(
 );
 ghostCar.visible = false;
 scene.add(ghostCar);
-type Rival = { car: THREE.Group; carType: CarType; carModel: CarModel; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
+type Rival = { car: THREE.Group; carType: CarType; progress: number; lane: number; speedMps: number; topSpeedMps: number; acceleration: number; phase: number; tailIntensity: number };
 const rivalColors = [0xe0b321, 0x6d3fb5, 0x2767c7, 0xc43d78, 0x2b9a67, 0xd66a24, 0xaeb8c2];
 const rivalCarTypes: CarType[] = ["drift", "drift", "grip", "grip", "drift", "drift", "grip"];
-const rivalCarModels: CarModel[] = ["simple", "detailed", "simple", "detailed", "simple", "detailed", "simple"];
 const rivals: Rival[] = rivalColors.map((color, i) => {
   const carType = rivalCarTypes[i];
-  const carModel = rivalCarModels[i];
-  const car = carModel === "detailed" ? makeDetailedCar(color, true, carType) : makeCar(color, true, carType);
+  const car = makeCar(color, true, carType);
   scene.add(car);
   return {
     car,
     carType,
-    carModel,
     progress: 0.045 - i * 0.014,
     lane: (i % 2 ? 1 : -1) * (0.65 + (i % 3) * 0.65),
     speedMps: 0,
@@ -1121,6 +1259,15 @@ const rivals: Rival[] = rivalColors.map((color, i) => {
     tailIntensity: 0.45,
   };
 });
+
+function disposeGroup(group: THREE.Group) {
+  group.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh || obj instanceof THREE.Sprite)) return;
+    if (obj instanceof THREE.Mesh) obj.geometry.dispose();
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    mats.forEach(m => m.dispose());
+  });
+}
 
 type TrailSample = { left: THREE.Vector3; right: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3; born: number; strength?: number };
 const samples: TrailSample[] = [];
@@ -1202,6 +1349,22 @@ function patchEffectTexturesAndVisibility() {
 }
 
 patchEffectTexturesAndVisibility();
+
+// Load car pack (Sport / Sedan / Compact) and hot-swap all cars.
+new GLTFLoader().load("./models/car_pack3.glb", g => {
+  _pack3Scene = g.scene;
+  const playerColor = selectedCarType === "drift" ? 0x7b183d : 0x0a5164;
+  const playerIdx = selectedCarType === "drift" ? 0 : 3;
+  const newPlayer = makePack3Car(playerIdx, playerColor, false, selectedCarType);
+  newPlayer.position.copy(playerCar.position); newPlayer.quaternion.copy(playerCar.quaternion);
+  scene.add(newPlayer); scene.remove(playerCar); disposeGroup(playerCar); playerCar = newPlayer;
+  rivals.forEach((rv, i) => {
+    const nc = makePack3Car(i % 3, rivalColors[i], true, rv.carType);
+    nc.position.copy(rv.car.position); nc.quaternion.copy(rv.car.quaternion);
+    scene.add(nc); scene.remove(rv.car); disposeGroup(rv.car); rv.car = nc;
+  });
+  patchEffectTexturesAndVisibility();
+});
 
 function updateRibbon(
   mesh: THREE.Mesh,
@@ -2237,17 +2400,14 @@ const vehicle = { ...gripVehicle };
 
 function applySelectedCarType() {
   Object.assign(vehicle, selectedCarType === "drift" ? driftVehicle : gripVehicle);
-  const replacement = makeCar(selectedCarType === "drift" ? 0x7b183d : 0x0a5164, false, selectedCarType);
+  const color = selectedCarType === "drift" ? 0x7b183d : 0x0a5164;
+  const playerIdx = selectedCarType === "drift" ? 0 : 3;
+  const replacement = makePack3Car(playerIdx, color, false, selectedCarType);
   replacement.position.copy(playerCar.position);
   replacement.quaternion.copy(playerCar.quaternion);
   scene.add(replacement);
   scene.remove(playerCar);
-  playerCar.traverse(object => {
-    if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
-    if (object instanceof THREE.Mesh) object.geometry.dispose();
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    materials.forEach(material => material.dispose());
-  });
+  disposeGroup(playerCar);
   playerCar = replacement;
   patchEffectTexturesAndVisibility();
 }
@@ -2753,9 +2913,9 @@ function animate() {
     cameraTarget.lerp(replayLook, 1 - Math.pow(0.008, dt));
   } else {
     const cameraSlip = THREE.MathUtils.clamp(lateralVelocity * 0.16, -2.2, 2.2);
-    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55 - speedRatio * 0.65).addScaledVector(playerFrame.right, -cameraSlip).addScaledVector(playerFrame.normal, 2.3 + cameraShake);
+    cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55).addScaledVector(playerFrame.right, -cameraSlip).addScaledVector(playerFrame.normal, 2.3 + cameraShake);
     camera.position.lerp(cameraPos, 1 - Math.pow(0.0012, dt));
-    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14 + speedRatio * 5).addScaledVector(playerFrame.right, lateralVelocity * 0.11).addScaledVector(playerFrame.normal, 0.48);
+    cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14).addScaledVector(playerFrame.right, lateralVelocity * 0.11).addScaledVector(playerFrame.normal, 0.48);
   }
   camera.lookAt(cameraTarget);
 
