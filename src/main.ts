@@ -1194,10 +1194,10 @@ const _pack3Cfg = [
   { name: "Compact",  solidBody: false, trackX: 0.58, frontZ: +0.95, rearZ: -0.99, wheelR: 0.270,
     lensZ: -1.15, lensX: 0.25, brakePts: [[-0.506, 0.577, -1.348], [0.506, 0.577, -1.348]] as [number,number,number][] },
   { name: "LuxSedan", solidBody: true,  trackX: 0.58, frontZ: +0.98, rearZ: -1.43, wheelR: 0.240,
-    lensZ: -1.55, lensX: 0.25, brakePts: [[-0.446, 0.237, -1.758], [0.446, 0.237, -1.758]] as [number,number,number][] },
+    lensZ: -1.55, lensX: 0.25, lensYmin: 0.40, brakePts: [[-0.446, 0.530, -1.760], [0.446, 0.530, -1.760]] as [number,number,number][] },
 ];
 
-function extractBrakeLens(opticsMesh: THREE.Mesh, lensZ: number, lensX: number): THREE.BufferGeometry {
+function extractBrakeLens(opticsMesh: THREE.Mesh, lensZ: number, lensX: number, lensYmin = 0): THREE.BufferGeometry {
   const geo = opticsMesh.geometry;
   const src = geo.attributes.position.array as Float32Array;
   const rawIdx = geo.index!.array;
@@ -1205,8 +1205,9 @@ function extractBrakeLens(opticsMesh: THREE.Mesh, lensZ: number, lensX: number):
   for (let i = 0; i < rawIdx.length; i += 3) {
     const a = rawIdx[i], b = rawIdx[i + 1], c = rawIdx[i + 2];
     const cx = (src[a*3] + src[b*3] + src[c*3]) / 3;
+    const cy = (src[a*3+1] + src[b*3+1] + src[c*3+1]) / 3;
     const cz = (src[a*3+2] + src[b*3+2] + src[c*3+2]) / 3;
-    if (cz < lensZ && Math.abs(cx) > lensX) keptIdx.push(a, b, c);
+    if (cz < lensZ && Math.abs(cx) > lensX && cy > lensYmin) keptIdx.push(a, b, c);
   }
   if (keptIdx.length === 0) return new THREE.BufferGeometry();
   const uniqueV = [...new Set(keptIdx)].sort((a, b) => a - b);
@@ -1266,7 +1267,7 @@ function makePack3Car(carIdx: number, _bodyColor: number, rival: boolean, carTyp
 
   const opticsObj = _pack3Scene.getObjectByName(`${cfg.name}_Optics`);
   if (opticsObj instanceof THREE.Mesh && cfg.lensZ !== undefined) {
-    const lensGeo = extractBrakeLens(opticsObj, cfg.lensZ, cfg.lensX!);
+    const lensGeo = extractBrakeLens(opticsObj, cfg.lensZ, cfg.lensX!, (cfg as { lensYmin?: number }).lensYmin ?? 0);
     if (lensGeo.attributes.position) {
       const lensMat = new THREE.MeshBasicMaterial({ color: 0xff0022, transparent: true, opacity: 0, depthWrite: false });
       car.add(new THREE.Mesh(lensGeo, lensMat));
