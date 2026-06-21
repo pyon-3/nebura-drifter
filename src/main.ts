@@ -343,6 +343,77 @@ function addAdvancedEnvironment() {
   }
 }
 
+function addNeonScenery() {
+  if (stage.id !== "neon-grid") return;
+
+  const PYLON_PALETTE = [0x00f5ff, 0xff2d9e, 0x00f5ff, 0xffec00];
+  const BOARD_COLORS = [0x00f5ff, 0xff2d9e, 0x9a00ff, 0x00ff9a];
+
+  // Energy pylons — 64 total, both sides, every ~62m
+  const pylonCount = 32;
+  const pylonShaftGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(0.38, 14, 0.38));
+  const pylonOrbGeo = new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.9));
+  const pylonGlowGeo = new THREE.EdgesGeometry(new THREE.OctahedronGeometry(2.2));
+  for (let i = 0; i < pylonCount; i++) {
+    const u = i / pylonCount;
+    const color = PYLON_PALETTE[i % PYLON_PALETTE.length];
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.88, blending: THREE.AdditiveBlending });
+    const glowMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (const side of [-1, 1]) {
+      const f = trackFrame(u, side * 9.5);
+      const shaft = new THREE.LineSegments(pylonShaftGeo, mat);
+      shaft.position.copy(f.point).addScaledVector(f.normal, 7);
+      shaft.quaternion.setFromUnitVectors(up, f.normal);
+      stageGroup.add(shaft);
+      const orb = new THREE.LineSegments(pylonOrbGeo, mat);
+      orb.position.copy(f.point).addScaledVector(f.normal, 14.8);
+      orb.quaternion.setFromUnitVectors(up, f.normal);
+      stageGroup.add(orb);
+      const glow = new THREE.LineSegments(pylonGlowGeo, glowMat);
+      glow.position.copy(orb.position);
+      glow.quaternion.copy(orb.quaternion);
+      stageGroup.add(glow);
+    }
+  }
+
+  // Neon billboards — 8 total, alternating left/right
+  const boardPositions: [number, number, number][] = [
+    [0.04, 1, 0], [0.17, -1, 1], [0.29, 1, 2], [0.42, -1, 3],
+    [0.54, 1, 0], [0.67, -1, 1], [0.79, 1, 2], [0.92, -1, 3],
+  ];
+  const postGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(0.28, 7.5, 0.28));
+  for (const [u, side, ci] of boardPositions) {
+    const color = BOARD_COLORS[ci];
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.92, blending: THREE.AdditiveBlending });
+    const glowMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false });
+    const f = trackFrame(u, side * 13);
+    // Two vertical posts
+    for (const px of [-2.4, 2.4]) {
+      const post = new THREE.LineSegments(postGeo, mat);
+      post.position.copy(f.point).addScaledVector(f.right, px * side).addScaledVector(f.normal, 3.75);
+      post.quaternion.setFromUnitVectors(up, f.normal);
+      stageGroup.add(post);
+    }
+    // Horizontal sign panel frame
+    const frameGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(5.2, 3.4, 0.1));
+    const frame = new THREE.LineSegments(frameGeo, mat);
+    frame.position.copy(f.point).addScaledVector(f.normal, 6.2);
+    frame.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
+    stageGroup.add(frame);
+    // Glowing panel face
+    const panelGeo = new THREE.PlaneGeometry(4.8, 3.0);
+    const panel = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    panel.position.copy(f.point).addScaledVector(f.normal, 6.2).addScaledVector(f.tangent, 0.05 * side);
+    panel.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
+    stageGroup.add(panel);
+    // Outer glow halo
+    const halo = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(6.4, 4.6, 0.5)), glowMat);
+    halo.position.copy(frame.position);
+    halo.quaternion.copy(frame.quaternion);
+    stageGroup.add(halo);
+  }
+}
+
 type LapTheme = { sky: number; fog: number; grid: number; opacity: number };
 type StageConfig = {
   id: string;
@@ -480,6 +551,7 @@ function configureStage(config: StageConfig) {
   WORLD_TO_METERS = stage.worldToMeters;
   TOTAL_LAPS = stage.laps;
   TRACK_FLOOR_Y = Math.min(...oval.getSpacedPoints(160).map(point => point.y)) - 0.5;
+  buildBankingLUT();
 }
 configureStage(stage);
 const MAX_SPEED_MPS = 288 / 3.6;
@@ -491,8 +563,11 @@ function trackFrame(u: number, lane = 0) {
   const wrapped = ((u % 1) + 1) % 1;
   const point = oval.getPointAt(wrapped);
   const tangent = oval.getTangentAt(wrapped).normalize();
-  const right = new THREE.Vector3().crossVectors(up, tangent).normalize();
-  const normal = new THREE.Vector3().crossVectors(tangent, right).normalize();
+  const flatRight = new THREE.Vector3().crossVectors(up, tangent).normalize();
+  const normal = new THREE.Vector3().crossVectors(tangent, flatRight).normalize();
+  const bankAngle = getBanking(wrapped);
+  if (bankAngle !== 0) normal.applyAxisAngle(tangent, bankAngle);
+  const right = new THREE.Vector3().crossVectors(normal, tangent).normalize();
   return { point: point.addScaledVector(right, lane), tangent, right, normal };
 }
 function wrapAngle(angle: number) {
@@ -505,6 +580,30 @@ function trackCurvature(u: number) {
   const a0 = Math.atan2(before.x, before.z);
   const a1 = Math.atan2(after.x, after.z);
   return wrapAngle(a1 - a0) / (TRACK_LENGTH_METERS * du * 2);
+}
+
+const BANK_FACTOR = 30;
+const MAX_BANK = 0.34; // ~20°
+const BANK_LUT_N = 512;
+let _bankLUT = new Float32Array(BANK_LUT_N + 1);
+
+function buildBankingLUT() {
+  const du = 0.01; // ~20m smoothing window
+  for (let i = 0; i <= BANK_LUT_N; i++) {
+    const u = i / BANK_LUT_N;
+    const b = oval.getTangentAt(((u - du) % 1 + 1) % 1);
+    const a = oval.getTangentAt(((u + du) % 1 + 1) % 1);
+    const curv = wrapAngle(Math.atan2(a.x, a.z) - Math.atan2(b.x, b.z)) / (TRACK_LENGTH_METERS * du * 2);
+    _bankLUT[i] = THREE.MathUtils.clamp(-curv * BANK_FACTOR, -MAX_BANK, MAX_BANK);
+  }
+}
+
+function getBanking(u: number): number {
+  const t = ((u % 1) + 1) % 1;
+  const fi = t * BANK_LUT_N;
+  const i0 = Math.floor(fi);
+  const frac = fi - i0;
+  return _bankLUT[i0] * (1 - frac) + _bankLUT[Math.min(i0 + 1, BANK_LUT_N)] * frac;
 }
 
 function makeRoad() {
@@ -575,6 +674,7 @@ function makeRoad() {
 makeRoad();
 addWireEnvironment();
 addAdvancedEnvironment();
+addNeonScenery();
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
@@ -2403,6 +2503,7 @@ function switchStage(index: number) {
     makeRoad();
     addWireEnvironment();
     addAdvancedEnvironment();
+    addNeonScenery();
     patchEffectTexturesAndVisibility();
     floor.position.y = TRACK_FLOOR_Y;
     grid.position.y = TRACK_FLOOR_Y + 0.04;
