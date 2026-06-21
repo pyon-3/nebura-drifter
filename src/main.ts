@@ -539,10 +539,7 @@ let TRACK_LENGTH_METERS = stage.targetLengthMeters;
 let WORLD_TO_METERS = stage.worldToMeters;
 let TOTAL_LAPS = stage.laps;
 let TRACK_FLOOR_Y = -0.5;
-const BANK_FACTOR = 30;
-const MAX_BANK = 0.34; // ~20°
-const BANK_LUT_N = 512;
-let _bankLUT = new Float32Array(BANK_LUT_N + 1);
+const MAX_BANK = 0.30; // ~17°
 function configureStage(config: StageConfig) {
   stage = config;
   const points = stage.controlPoints.map(([x, y, z]) => new THREE.Vector3(x, y, z));
@@ -555,7 +552,6 @@ function configureStage(config: StageConfig) {
   WORLD_TO_METERS = stage.worldToMeters;
   TOTAL_LAPS = stage.laps;
   TRACK_FLOOR_Y = Math.min(...oval.getSpacedPoints(160).map(point => point.y)) - 0.5;
-  buildBankingLUT();
 }
 configureStage(stage);
 const MAX_SPEED_MPS = 288 / 3.6;
@@ -569,8 +565,16 @@ function trackFrame(u: number, lane = 0) {
   const tangent = oval.getTangentAt(wrapped).normalize();
   const flatRight = new THREE.Vector3().crossVectors(up, tangent).normalize();
   const normal = new THREE.Vector3().crossVectors(tangent, flatRight).normalize();
-  const bankAngle = getBanking(wrapped);
-  if (bankAngle !== 0) normal.applyAxisAngle(tangent, bankAngle);
+  // Banking: tangent.z² is max at corners (±Z direction) and 0 on straights (±X direction)
+  // Both corners bank inward because applyAxisAngle uses the actual tangent direction
+  if (stage.id === "neon-grid") {
+    const txz = Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z);
+    if (txz > 0.001) {
+      const cz = tangent.z / txz;
+      const bankAngle = MAX_BANK * cz * cz;
+      if (bankAngle > 0.001) normal.applyAxisAngle(tangent, bankAngle);
+    }
+  }
   const right = new THREE.Vector3().crossVectors(normal, tangent).normalize();
   return { point: point.addScaledVector(right, lane), tangent, right, normal };
 }
@@ -584,44 +588,6 @@ function trackCurvature(u: number) {
   const a0 = Math.atan2(before.x, before.z);
   const a1 = Math.atan2(after.x, after.z);
   return wrapAngle(a1 - a0) / (TRACK_LENGTH_METERS * du * 2);
-}
-
-function buildBankingLUT() {
-  const du = 0.025; // ~100m window per side
-  const raw = new Float32Array(BANK_LUT_N + 1);
-  for (let i = 0; i <= BANK_LUT_N; i++) {
-    const u = i / BANK_LUT_N;
-    const b = oval.getTangentAt(((u - du) % 1 + 1) % 1);
-    const a = oval.getTangentAt(((u + du) % 1 + 1) % 1);
-    // Project to XZ plane before atan2 to ignore Y-slope influence
-    const a0 = Math.atan2(b.x, b.z);
-    const a1 = Math.atan2(a.x, a.z);
-    const curv = wrapAngle(a1 - a0) / (TRACK_LENGTH_METERS * du * 2);
-    raw[i] = -curv * BANK_FACTOR;
-  }
-  // 3-pass box blur (radius 12) → smooth ~70m-wide Gaussian equivalent
-  const tmp = new Float32Array(BANK_LUT_N + 1);
-  const R = 12;
-  const N = BANK_LUT_N;
-  function boxBlur(src: Float32Array, dst: Float32Array) {
-    for (let i = 0; i <= N; i++) {
-      let s = 0;
-      for (let j = -R; j <= R; j++) s += src[((i + j) % N + N) % N];
-      dst[i] = s / (2 * R + 1);
-    }
-  }
-  boxBlur(raw, tmp);
-  boxBlur(tmp, raw);
-  boxBlur(raw, tmp);
-  for (let i = 0; i <= N; i++) _bankLUT[i] = THREE.MathUtils.clamp(tmp[i], -MAX_BANK, MAX_BANK);
-}
-
-function getBanking(u: number): number {
-  const t = ((u % 1) + 1) % 1;
-  const fi = t * BANK_LUT_N;
-  const i0 = Math.floor(fi);
-  const frac = fi - i0;
-  return _bankLUT[i0] * (1 - frac) + _bankLUT[Math.min(i0 + 1, BANK_LUT_N)] * frac;
 }
 
 function makeRoad() {
