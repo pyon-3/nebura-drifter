@@ -1185,11 +1185,44 @@ const _pack3Cfg = [
   // frontZ/rearZ tuned from GLB bounds
   // Generic pack: Sport Z=-1.74~1.86, Sedan Z=-2.00~2.01, Compact Z=-1.49~1.50
   // Lux pack:     LuxSedan Z=-1.90~1.70
-  { name: "Sport",    solidBody: false, trackX: 0.60, frontZ: +1.16, rearZ: -1.09, wheelR: 0.245 },
-  { name: "Sedan",    solidBody: false, trackX: 0.65, frontZ: +1.26, rearZ: -1.35, wheelR: 0.265 },
-  { name: "Compact",  solidBody: false, trackX: 0.58, frontZ: +0.95, rearZ: -0.99, wheelR: 0.270 },
-  { name: "LuxSedan", solidBody: true,  trackX: 0.58, frontZ: +0.98, rearZ: -1.43, wheelR: 0.240 },
+  // lensZ/lensX: thresholds to extract rear Optics triangles as brake lens mesh
+  // brakePts: sprite glow positions (measured from GLB vertex centroid analysis)
+  { name: "Sport",    solidBody: false, trackX: 0.60, frontZ: +1.16, rearZ: -1.09, wheelR: 0.245,
+    lensZ: -1.55, lensX: 0.25, brakePts: [[-0.472, 0.388, -1.655], [0.472, 0.388, -1.655]] as [number,number,number][] },
+  { name: "Sedan",    solidBody: false, trackX: 0.65, frontZ: +1.26, rearZ: -1.35, wheelR: 0.265,
+    lensZ: -1.70, lensX: 0.30, brakePts: [[-0.526, 0.558, -1.880], [0.526, 0.558, -1.880]] as [number,number,number][] },
+  { name: "Compact",  solidBody: false, trackX: 0.58, frontZ: +0.95, rearZ: -0.99, wheelR: 0.270,
+    lensZ: -1.15, lensX: 0.25, brakePts: [[-0.506, 0.577, -1.348], [0.506, 0.577, -1.348]] as [number,number,number][] },
+  { name: "LuxSedan", solidBody: true,  trackX: 0.58, frontZ: +0.98, rearZ: -1.43, wheelR: 0.240,
+    lensZ: -1.55, lensX: 0.25, brakePts: [[-0.446, 0.237, -1.758], [0.446, 0.237, -1.758]] as [number,number,number][] },
 ];
+
+function extractBrakeLens(opticsMesh: THREE.Mesh, lensZ: number, lensX: number): THREE.BufferGeometry {
+  const geo = opticsMesh.geometry;
+  const src = geo.attributes.position.array as Float32Array;
+  const rawIdx = geo.index!.array;
+  const keptIdx: number[] = [];
+  for (let i = 0; i < rawIdx.length; i += 3) {
+    const a = rawIdx[i], b = rawIdx[i + 1], c = rawIdx[i + 2];
+    const cx = (src[a*3] + src[b*3] + src[c*3]) / 3;
+    const cz = (src[a*3+2] + src[b*3+2] + src[c*3+2]) / 3;
+    if (cz < lensZ && Math.abs(cx) > lensX) keptIdx.push(a, b, c);
+  }
+  if (keptIdx.length === 0) return new THREE.BufferGeometry();
+  const uniqueV = [...new Set(keptIdx)].sort((a, b) => a - b);
+  const remap = new Map(uniqueV.map((v, i) => [v, i]));
+  const pos = new Float32Array(uniqueV.length * 3);
+  for (let i = 0; i < uniqueV.length; i++) {
+    const v = uniqueV[i];
+    pos[i*3] = src[v*3]; pos[i*3+1] = src[v*3+1]; pos[i*3+2] = src[v*3+2] - 0.004;
+  }
+  const idx = new Uint32Array(keptIdx.map(v => remap.get(v)!));
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeVertexNormals();
+  return out;
+}
 
 function makePack3Car(carIdx: number, _bodyColor: number, rival: boolean, carType: CarType): THREE.Group {
   if (!_pack3Scene) return makeCar(_bodyColor, rival, carType);
@@ -1225,8 +1258,58 @@ function makePack3Car(carIdx: number, _bodyColor: number, rival: boolean, carTyp
     rim.rotation.z = Math.PI / 2; rim.position.set(x, cfg.wheelR, z); car.add(rim);
   }
 
+  // ── brake lens: extract rear Optics geometry and animate as brake light ──
+  const brakeSolidMats: THREE.MeshBasicMaterial[] = [];
+  const brakeCoreMats: THREE.SpriteMaterial[] = [];
+  const brakeHaloMats: THREE.SpriteMaterial[] = [];
+  const brakeSprites: THREE.Sprite[] = [];
+
+  const opticsObj = _pack3Scene.getObjectByName(`${cfg.name}_Optics`);
+  if (opticsObj instanceof THREE.Mesh && cfg.lensZ !== undefined) {
+    const lensGeo = extractBrakeLens(opticsObj, cfg.lensZ, cfg.lensX!);
+    if (lensGeo.attributes.position) {
+      const lensMat = new THREE.MeshBasicMaterial({ color: 0xff0022, transparent: true, opacity: 0, depthWrite: false });
+      car.add(new THREE.Mesh(lensGeo, lensMat));
+      brakeSolidMats.push(lensMat);
+    }
+  }
+
+  for (const [px, py, pz] of (cfg.brakePts ?? [])) {
+    const haloMat = new THREE.SpriteMaterial({
+      map: smokeTexture, color: 0xff2040, blending: safeBlending,
+      transparent: true, opacity: 0.0, depthWrite: false, alphaTest: 0.02,
+    });
+    const halo = new THREE.Sprite(haloMat);
+    halo.userData.effectGroup = "glow";
+    halo.userData.requiresTexture = true;
+    halo.position.set(px, py, pz - 0.04);
+    halo.scale.setScalar(0.55);
+    halo.visible = !disableSprites && !disableGlow;
+    car.add(halo);
+
+    const coreMat = new THREE.SpriteMaterial({
+      map: smokeTexture, color: 0xffe0e2, blending: safeBlending,
+      transparent: true, opacity: 0.0, depthWrite: false, alphaTest: 0.02,
+    });
+    const core = new THREE.Sprite(coreMat);
+    core.userData.effectGroup = "glow";
+    core.userData.requiresTexture = true;
+    core.position.set(px, py, pz - 0.06);
+    core.scale.setScalar(0.16);
+    core.visible = !disableSprites && !disableGlow;
+    car.add(core);
+
+    brakeHaloMats.push(haloMat);
+    brakeCoreMats.push(coreMat);
+    brakeSprites.push(halo, core);
+  }
+
   const spillMaterial = new THREE.MeshBasicMaterial({ color: 0xff183d, transparent: true, opacity: 0, depthWrite: false });
-  car.userData.tailLights = { coreMaterials: [], haloMaterials: [], sprites: [], spillMaterial, intensity: 0.45, rival, solidMaterials: [] };
+  car.userData.tailLights = {
+    coreMaterials: brakeCoreMats, haloMaterials: brakeHaloMats,
+    sprites: brakeSprites, spillMaterial, intensity: 0.45, rival,
+    solidMaterials: [], lensMaterials: brakeSolidMats,
+  };
   car.userData.carType = carType;
   return car;
 }
@@ -1425,6 +1508,7 @@ function updateTailLights(car: THREE.Group, targetIntensity: number, dt: number,
     sprites: THREE.Sprite[];
     spillMaterial: THREE.MeshBasicMaterial;
     solidMaterials?: THREE.MeshBasicMaterial[];
+    lensMaterials?: THREE.MeshBasicMaterial[];
     intensity: number;
     rival: boolean;
   } | undefined;
@@ -1440,6 +1524,9 @@ function updateTailLights(car: THREE.Group, targetIntensity: number, dt: number,
   });
   lights.solidMaterials?.forEach(material => {
     material.color.setRGB(1, 0.035 + intensity * 0.12, 0.07 + intensity * 0.1);
+  });
+  lights.lensMaterials?.forEach(material => {
+    material.opacity = 0.10 + intensity * 0.82;
   });
   lights.spillMaterial.opacity = 0.035 + intensity * 0.11;
 }
