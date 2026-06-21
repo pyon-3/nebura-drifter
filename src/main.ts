@@ -1188,7 +1188,7 @@ const _pack3Cfg = [
   { name: "Sport",    solidBody: false, trackX: 0.60, frontZ: +1.16, rearZ: -1.09, wheelR: 0.245 },
   { name: "Sedan",    solidBody: false, trackX: 0.65, frontZ: +1.26, rearZ: -1.35, wheelR: 0.265 },
   { name: "Compact",  solidBody: false, trackX: 0.58, frontZ: +0.95, rearZ: -0.99, wheelR: 0.270 },
-  { name: "LuxSedan", solidBody: true,  trackX: 0.69, frontZ: +0.98, rearZ: -1.43, wheelR: 0.240 },
+  { name: "LuxSedan", solidBody: true,  trackX: 0.58, frontZ: +0.98, rearZ: -1.43, wheelR: 0.240 },
 ];
 
 function makePack3Car(carIdx: number, _bodyColor: number, rival: boolean, carType: CarType): THREE.Group {
