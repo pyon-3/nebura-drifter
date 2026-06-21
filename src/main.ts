@@ -587,14 +587,33 @@ function trackCurvature(u: number) {
 }
 
 function buildBankingLUT() {
-  const du = 0.01; // ~20m smoothing window
+  const du = 0.025; // ~100m window per side
+  const raw = new Float32Array(BANK_LUT_N + 1);
   for (let i = 0; i <= BANK_LUT_N; i++) {
     const u = i / BANK_LUT_N;
     const b = oval.getTangentAt(((u - du) % 1 + 1) % 1);
     const a = oval.getTangentAt(((u + du) % 1 + 1) % 1);
-    const curv = wrapAngle(Math.atan2(a.x, a.z) - Math.atan2(b.x, b.z)) / (TRACK_LENGTH_METERS * du * 2);
-    _bankLUT[i] = THREE.MathUtils.clamp(-curv * BANK_FACTOR, -MAX_BANK, MAX_BANK);
+    // Project to XZ plane before atan2 to ignore Y-slope influence
+    const a0 = Math.atan2(b.x, b.z);
+    const a1 = Math.atan2(a.x, a.z);
+    const curv = wrapAngle(a1 - a0) / (TRACK_LENGTH_METERS * du * 2);
+    raw[i] = -curv * BANK_FACTOR;
   }
+  // 3-pass box blur (radius 12) → smooth ~70m-wide Gaussian equivalent
+  const tmp = new Float32Array(BANK_LUT_N + 1);
+  const R = 12;
+  const N = BANK_LUT_N;
+  function boxBlur(src: Float32Array, dst: Float32Array) {
+    for (let i = 0; i <= N; i++) {
+      let s = 0;
+      for (let j = -R; j <= R; j++) s += src[((i + j) % N + N) % N];
+      dst[i] = s / (2 * R + 1);
+    }
+  }
+  boxBlur(raw, tmp);
+  boxBlur(tmp, raw);
+  boxBlur(raw, tmp);
+  for (let i = 0; i <= N; i++) _bankLUT[i] = THREE.MathUtils.clamp(tmp[i], -MAX_BANK, MAX_BANK);
 }
 
 function getBanking(u: number): number {
@@ -641,7 +660,6 @@ function makeRoad() {
         new THREE.MeshBasicMaterial({ color: i % 2 ? 0x18a9bd : 0xd21d6c }),
       );
       post.position.copy(f.point).addScaledVector(f.right, side * 6.25).addScaledVector(f.normal, 0.35);
-      post.quaternion.setFromUnitVectors(up, f.normal);
       stageGroup.add(post);
     }
   }
