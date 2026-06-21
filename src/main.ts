@@ -1468,6 +1468,7 @@ let yawError = 0;
 let yawRate = 0;
 let steerAngle = 0;
 let longitudinalAccel = 0;
+let smoothLongAccel = 0;
 let score = 0;
 let playerTailIntensity = 0.45;
 let lastEmit = 0;
@@ -2503,6 +2504,7 @@ function updatePlayerPhysics(dt: number, accelerating: boolean, braking: boolean
   const forwardForce = engine - brake - drag - (offRoad ? overloaded ? 700 : 3200 : 0);
   playerSpeed = THREE.MathUtils.clamp(playerSpeed + (forwardForce / vehicle.mass) * dt, 0, speedLimit);
   longitudinalAccel = (playerSpeed - previousSpeed) / Math.max(dt, 0.001);
+  smoothLongAccel = THREE.MathUtils.lerp(smoothLongAccel, longitudinalAccel, 1 - Math.pow(0.004, dt));
 
   if (playerSpeed < 1.5) {
     lateralVelocity *= Math.pow(0.0001, dt);
@@ -2791,7 +2793,7 @@ function animate() {
   offroadVignetteEl.style.opacity = String(offroadStrength * (0.55 + Math.sin(now * 36) * 0.15));
 
   let playerFrame = placeCar(playerCar, playerProgress, lane, yawError, -lateralVelocity * 0.012);
-  playerCar.rotateX(THREE.MathUtils.clamp(-longitudinalAccel * 0.004, -0.032, 0.032));
+  playerCar.rotateX(THREE.MathUtils.clamp(-smoothLongAccel * 0.004, -0.032, 0.032));
   if (replaying) {
     const replayTime = replayFrames[0].time + (now - replayStart) * 0.78;
     while (replayCursor < replayFrames.length - 2 && replayFrames[replayCursor + 1].time < replayTime) replayCursor++;
@@ -2914,7 +2916,9 @@ function animate() {
   } else {
     const cameraSlip = THREE.MathUtils.clamp(lateralVelocity * 0.16, -2.2, 2.2);
     cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55).addScaledVector(playerFrame.right, -cameraSlip).addScaledVector(playerFrame.normal, 2.3 + cameraShake);
-    camera.position.copy(cameraPos);
+    camera.position.x = cameraPos.x;
+    camera.position.z = cameraPos.z;
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, cameraPos.y, 1 - Math.pow(0.004, dt));
     cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14).addScaledVector(playerFrame.right, lateralVelocity * 0.11).addScaledVector(playerFrame.normal, 0.48);
   }
   camera.lookAt(cameraTarget);
