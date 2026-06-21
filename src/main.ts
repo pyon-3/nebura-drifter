@@ -2914,7 +2914,7 @@ function animate() {
   } else {
     const cameraSlip = THREE.MathUtils.clamp(lateralVelocity * 0.16, -2.2, 2.2);
     cameraPos.copy(playerFrame.point).addScaledVector(playerFrame.tangent, -5.55).addScaledVector(playerFrame.right, -cameraSlip).addScaledVector(playerFrame.normal, 2.3 + cameraShake);
-    camera.position.lerp(cameraPos, 1 - Math.pow(0.0012, dt));
+    camera.position.copy(cameraPos);
     cameraTarget.copy(playerFrame.point).addScaledVector(playerFrame.tangent, 14).addScaledVector(playerFrame.right, lateralVelocity * 0.11).addScaledVector(playerFrame.normal, 0.48);
   }
   camera.lookAt(cameraTarget);
