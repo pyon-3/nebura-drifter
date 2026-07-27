@@ -29,6 +29,21 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = disableBloom ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = disableBloom ? 1 : 2.38;
 
+// Stage 1 road surface. Other stages intentionally retain their original
+// vertex-color material until the visual/performance cost is validated.
+const neonGridAsphaltTexture = new THREE.TextureLoader().load(
+  "./textures/neon-grid-asphalt.png",
+  undefined,
+  undefined,
+  error => console.warn("NEON GRID asphalt texture could not be loaded; using the material base color.", error),
+);
+neonGridAsphaltTexture.colorSpace = THREE.SRGBColorSpace;
+neonGridAsphaltTexture.wrapS = THREE.RepeatWrapping;
+neonGridAsphaltTexture.wrapT = THREE.RepeatWrapping;
+neonGridAsphaltTexture.minFilter = THREE.LinearMipmapLinearFilter;
+neonGridAsphaltTexture.magFilter = THREE.LinearFilter;
+neonGridAsphaltTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05091a);
 scene.fog = new THREE.FogExp2(0x05091a, 0.0016);
@@ -593,13 +608,18 @@ function trackCurvature(u: number) {
 function makeRoad() {
   const vertices: number[] = [];
   const colors: number[] = [];
+  const uvs: number[] = [];
   const edgeL: THREE.Vector3[] = [];
   const edgeR: THREE.Vector3[] = [];
+  const usesTexturedRoad = stage.id === "neon-grid";
+  // Keep the final U coordinate integral so the closed course has no UV jump.
+  const textureRepeats = Math.max(1, Math.round(TRACK_LENGTH_METERS / 24));
   for (let i = 0; i <= SEGMENTS; i++) {
     const f = trackFrame(i / SEGMENTS);
     for (const side of [-1, 1]) {
       const p = f.point.clone().addScaledVector(f.right, side * TRACK_WIDTH * 0.5);
       vertices.push(p.x, p.y, p.z);
+      uvs.push((i / SEGMENTS) * textureRepeats, side < 0 ? 0 : 1);
       const stripe = i % 12 < 6 ? 0.105 : 0.078;
       colors.push(stripe, stripe * 1.08, stripe * 1.5);
       (side < 0 ? edgeL : edgeR).push(p.clone().addScaledVector(f.normal, 0.035));
@@ -610,9 +630,17 @@ function makeRoad() {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
-  stageGroup.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.98, metalness: 0.05 })));
+  const roadMaterial = new THREE.MeshStandardMaterial({
+    color: usesTexturedRoad ? 0xaeb9ca : 0xffffff,
+    map: usesTexturedRoad ? neonGridAsphaltTexture : null,
+    vertexColors: !usesTexturedRoad,
+    roughness: usesTexturedRoad ? 0.88 : 0.98,
+    metalness: usesTexturedRoad ? 0.02 : 0.05,
+  });
+  stageGroup.add(new THREE.Mesh(geometry, roadMaterial));
 
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x31dcf4, transparent: true, opacity: 0.72 });
   stageGroup.add(new THREE.Line(edgeL.length ? new THREE.BufferGeometry().setFromPoints(edgeL) : new THREE.BufferGeometry(), edgeMat));
