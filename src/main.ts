@@ -29,20 +29,20 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = disableBloom ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = disableBloom ? 1 : 2.38;
 
-// Stage 1 road surface. Other stages intentionally retain their original
-// vertex-color material until the visual/performance cost is validated.
-const neonGridAsphaltTexture = new THREE.TextureLoader().load(
-  "./textures/neon-grid-asphalt.png",
+// Shared road surface: every stage uses a solid asphalt material. Stage color
+// comes from the material tint, so one compact texture remains mobile-friendly.
+const racingAsphaltTexture = new THREE.TextureLoader().load(
+  "./textures/racing-asphalt-v2.png",
   undefined,
   undefined,
-  error => console.warn("NEON GRID asphalt texture could not be loaded; using the material base color.", error),
+  error => console.warn("Racing asphalt texture could not be loaded; using the material base color.", error),
 );
-neonGridAsphaltTexture.colorSpace = THREE.SRGBColorSpace;
-neonGridAsphaltTexture.wrapS = THREE.RepeatWrapping;
-neonGridAsphaltTexture.wrapT = THREE.RepeatWrapping;
-neonGridAsphaltTexture.minFilter = THREE.LinearMipmapLinearFilter;
-neonGridAsphaltTexture.magFilter = THREE.LinearFilter;
-neonGridAsphaltTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+racingAsphaltTexture.colorSpace = THREE.SRGBColorSpace;
+racingAsphaltTexture.wrapS = THREE.RepeatWrapping;
+racingAsphaltTexture.wrapT = THREE.RepeatWrapping;
+racingAsphaltTexture.minFilter = THREE.LinearMipmapLinearFilter;
+racingAsphaltTexture.magFilter = THREE.LinearFilter;
+racingAsphaltTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05091a);
@@ -99,85 +99,50 @@ let landmarkRing: THREE.Mesh | null = null;
 scene.add(stageGroup);
 
 function addQuietLakeEnvironment() {
-  const treePositions: number[] = [];
-  const addSegment = (a: THREE.Vector3, b: THREE.Vector3) => {
-    treePositions.push(a.x, a.y, a.z, b.x, b.y, b.z);
-  };
+  const treeCount = 112;
+  const trunks = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.32, 0.48, 4.5, 7),
+    new THREE.MeshStandardMaterial({ color: 0x33271f, roughness: 1 }),
+    treeCount,
+  );
+  const crowns = new THREE.InstancedMesh(
+    new THREE.ConeGeometry(3.5, 10, 9),
+    new THREE.MeshStandardMaterial({ color: 0x173c31, roughness: 0.96 }),
+    treeCount,
+  );
+  const matrix = new THREE.Matrix4();
+  const rotation = new THREE.Quaternion();
   for (let i = 0; i < 112; i++) {
     const f = trackFrame(i / 112);
     const side = i % 2 ? 1 : -1;
     const offset = TRACK_WIDTH * 0.5 + 10 + (i * 17 % 24);
     const base = f.point.clone().addScaledVector(f.right, side * offset).addScaledVector(f.normal, 0.08);
     const height = 5.5 + (i * 13 % 9);
-    const trunkTop = base.clone().addScaledVector(f.normal, height * 0.42);
-    addSegment(base, trunkTop);
-    for (let tier = 0; tier < 3; tier++) {
-      const tierY = height * (0.38 + tier * 0.2);
-      const radius = height * (0.34 - tier * 0.075);
-      const center = base.clone().addScaledVector(f.normal, tierY);
-      const apex = base.clone().addScaledVector(f.normal, tierY + height * 0.3);
-      const ring: THREE.Vector3[] = [];
-      for (let j = 0; j < 6; j++) {
-        const angle = j / 6 * Math.PI * 2;
-        ring.push(center.clone().addScaledVector(f.right, Math.cos(angle) * radius).addScaledVector(f.tangent, Math.sin(angle) * radius));
-      }
-      for (let j = 0; j < ring.length; j++) {
-        addSegment(ring[j], ring[(j + 1) % ring.length]);
-        addSegment(ring[j], apex);
-      }
-    }
+    rotation.setFromUnitVectors(up, f.normal);
+    matrix.compose(base.clone().addScaledVector(f.normal, height * 0.2), rotation,
+      new THREE.Vector3(0.72 + (i % 5) * 0.05, height / 11, 0.72 + (i % 5) * 0.05));
+    trunks.setMatrixAt(i, matrix);
+    matrix.compose(base.clone().addScaledVector(f.normal, height * 0.66), rotation,
+      new THREE.Vector3(height / 10, height / 10, height / 10));
+    crowns.setMatrixAt(i, matrix);
   }
-  const treeMaterial = new THREE.LineBasicMaterial({ color: 0x58b5a1, transparent: true, opacity: 0.58 });
-  wireMaterials.push(treeMaterial);
-  const trees = new THREE.LineSegments(
-    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(treePositions, 3)),
-    treeMaterial,
-  );
-  trees.name = "quiet-lake-wire-trees";
-  stageGroup.add(trees);
+  trunks.instanceMatrix.needsUpdate = true;crowns.instanceMatrix.needsUpdate = true;
+  trunks.name = "quiet-lake-solid-trunks";crowns.name = "quiet-lake-solid-crowns";
+  stageGroup.add(trunks,crowns);
 
   const sampled = oval.getSpacedPoints(192);
   const bounds = new THREE.Box3().setFromPoints(sampled);
   const center = bounds.getCenter(new THREE.Vector3());
   const size = bounds.getSize(new THREE.Vector3());
-  const lakeY = TRACK_FLOOR_Y + 0.075;
-  const lakePositions: number[] = [];
-  const addLakeSegment = (ax: number, az: number, bx: number, bz: number) => {
-    lakePositions.push(ax, lakeY, az, bx, lakeY, bz);
-  };
-  for (let ring = 0; ring < 15; ring++) {
-    const scale = 0.22 + ring * 0.035;
-    const radiusX = size.x * scale;
-    const radiusZ = size.z * scale * 0.7;
-    for (let i = 0; i < 96; i++) {
-      const a = i / 96 * Math.PI * 2;
-      const b = (i + 1) / 96 * Math.PI * 2;
-      const rippleA = Math.sin(a * 5 + ring * 0.8) * (1.4 + ring * 0.08);
-      const rippleB = Math.sin(b * 5 + ring * 0.8) * (1.4 + ring * 0.08);
-      addLakeSegment(
-        center.x + Math.cos(a) * (radiusX + rippleA),
-        center.z + Math.sin(a) * (radiusZ + rippleA),
-        center.x + Math.cos(b) * (radiusX + rippleB),
-        center.z + Math.sin(b) * (radiusZ + rippleB),
-      );
-    }
-  }
-  for (let row = -8; row <= 8; row++) {
-    const z = center.z + row * size.z * 0.027;
-    const halfWidth = size.x * (0.26 + Math.cos(row * 0.34) * 0.035);
-    for (let i = 0; i < 28; i++) {
-      const ax = center.x - halfWidth + i / 28 * halfWidth * 2;
-      const bx = center.x - halfWidth + (i + 1) / 28 * halfWidth * 2;
-      addLakeSegment(ax, z + Math.sin(i * 0.9 + row) * 0.8, bx, z + Math.sin((i + 1) * 0.9 + row) * 0.8);
-    }
-  }
-  const lakeMaterial = new THREE.LineBasicMaterial({ color: 0x65d7dd, transparent: true, opacity: 0.32, depthWrite: false });
-  wireMaterials.push(lakeMaterial);
-  const lake = new THREE.LineSegments(
-    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(lakePositions, 3)),
-    lakeMaterial,
+  const lake = new THREE.Mesh(
+    new THREE.CircleGeometry(1,96),
+    new THREE.MeshStandardMaterial({color:0x174854,roughness:0.18,metalness:0.12,
+      transparent:true,opacity:0.84,side:THREE.DoubleSide}),
   );
-  lake.name = "quiet-lake-wire-water";
+  lake.scale.set(size.x*0.34,size.z*0.29,1);
+  lake.rotation.x=-Math.PI/2;
+  lake.position.set(center.x,TRACK_FLOOR_Y+0.08,center.z);
+  lake.name = "quiet-lake-solid-water";
   stageGroup.add(lake);
 }
 
@@ -190,16 +155,23 @@ function addWireEnvironment() {
   const city = new THREE.Group();
   const cyan = new THREE.LineBasicMaterial({ color: 0x70f2ff, transparent: true, opacity: 0.46 });
   const violet = new THREE.LineBasicMaterial({ color: 0xc997ff, transparent: true, opacity: 0.38 });
+  const cityMaterials = [
+    new THREE.MeshStandardMaterial({ color: stage.id === "ridge-helix" ? 0x251d28 : 0x101b29, roughness: 0.82, metalness: 0.24 }),
+    new THREE.MeshStandardMaterial({ color: stage.id === "ridge-helix" ? 0x312034 : 0x1a142b, roughness: 0.78, metalness: 0.28 }),
+  ];
   wireMaterials.push(cyan, violet);
   for (let i = 0; i < 72; i++) {
     const angle = (i / 72) * Math.PI * 2;
     const radius = 580 + Math.sin(i * 2.17) * 90;
     const height = 18 + (i * 37 % 70);
     const width = 12 + (i * 19 % 28);
-    const building = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(width, height, width * 0.7)),
+    const buildingGeometry = new THREE.BoxGeometry(width, height, width * 0.7);
+    const building = new THREE.Group();
+    building.add(new THREE.Mesh(buildingGeometry, cityMaterials[i % cityMaterials.length]));
+    building.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(buildingGeometry),
       i % 4 === 0 ? violet : cyan,
-    );
+    ));
     building.position.set(Math.cos(angle) * radius, height * 0.5 - 1, Math.sin(angle) * radius);
     building.rotation.y = -angle;
     city.add(building);
@@ -220,12 +192,30 @@ function addWireEnvironment() {
     const glowMaterial = new THREE.LineBasicMaterial({ color: i % 3 === 0 ? 0xff4e82 : 0x48eaff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false });
     gateMaterials.push(material);
     for (const side of [-1, 1]) {
-      const pillar = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 5.5, 0.16)), material);
+      const pillarGeometry = new THREE.BoxGeometry(0.32, 5.5, 0.32);
+      const pillar = new THREE.Group();
+      pillar.add(new THREE.Mesh(pillarGeometry, new THREE.MeshStandardMaterial({
+          color: 0x172434,
+          emissive: i % 3 === 0 ? 0x491326 : 0x123b47,
+          emissiveIntensity: 0.38,
+          roughness: 0.68,
+          metalness: 0.42,
+        })));
+      pillar.add(new THREE.LineSegments(new THREE.EdgesGeometry(pillarGeometry), material));
       pillar.position.copy(f.point).addScaledVector(f.right, side * 8.5).addScaledVector(f.normal, 2.75);
       pillar.quaternion.setFromUnitVectors(up, f.normal);
       gate.add(pillar);
     }
-    const top = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(17, 0.14, 0.14)), material);
+    const topGeometry = new THREE.BoxGeometry(17, 0.28, 0.32);
+    const top = new THREE.Group();
+    top.add(new THREE.Mesh(topGeometry, new THREE.MeshStandardMaterial({
+        color: 0x18283a,
+        emissive: i % 3 === 0 ? 0x4b1028 : 0x0d3c4a,
+        emissiveIntensity: 0.42,
+        roughness: 0.66,
+        metalness: 0.46,
+      })));
+    top.add(new THREE.LineSegments(new THREE.EdgesGeometry(topGeometry), material));
     top.position.copy(f.point).addScaledVector(f.normal, 5.45);
     top.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     gate.add(top);
@@ -237,13 +227,15 @@ function addWireEnvironment() {
     stageGroup.add(gate);
   }
 
-  const towerMat = new THREE.LineBasicMaterial({ color: 0xff4f86, transparent: true, opacity: 0.62 });
-  const tower = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CylinderGeometry(8, 20, 150, 6, 5)), towerMat);
+  const towerGeometry = new THREE.CylinderGeometry(8,20,150,10,5);
+  const tower = new THREE.Group();
+  tower.add(new THREE.Mesh(towerGeometry,new THREE.MeshStandardMaterial({color:0x241a2b,roughness:.7,metalness:.38})));
+  tower.add(new THREE.LineSegments(new THREE.EdgesGeometry(towerGeometry),new THREE.LineBasicMaterial({color:0xff4f86,transparent:true,opacity:.48})));
   tower.position.set(230, 74, -310);
   stageGroup.add(tower);
   landmarkRing = new THREE.Mesh(
     new THREE.TorusGeometry(54, 0.8, 4, 48),
-    new THREE.MeshBasicMaterial({ color: 0x66ecff, wireframe: true, transparent: true, opacity: 0.72, blending: THREE.AdditiveBlending }),
+    new THREE.MeshStandardMaterial({ color: 0x193b47, emissive: 0x145c6a, emissiveIntensity: 0.8, roughness: 0.36, metalness: 0.55 }),
   );
   markEffect(landmarkRing, "glow", "landmark-glow-ring");
   landmarkRing.position.set(-320, 72, 230);
@@ -255,11 +247,15 @@ function addAdvancedEnvironment() {
   if (stage.id !== "blue-neon-shift") return;
 
   const addWireBox = (group: THREE.Group, width: number, height: number, depth: number, color: number, opacity = 0.78) => {
+    const geometry=new THREE.BoxGeometry(width,height,depth);
+    const solid=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({
+      color:new THREE.Color(color).multiplyScalar(.18),roughness:.72,metalness:.38,
+    }));
     const wire = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(width, height, depth)),
+      new THREE.EdgesGeometry(geometry),
       new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending }),
     );
-    group.add(wire);
+    group.add(solid,wire);
     return wire;
   };
 
@@ -327,6 +323,10 @@ function addAdvancedEnvironment() {
         }),
       );
       wallColumn.position.set(side * 6.7, -0.1, 0);
+      const wallSolid=new THREE.Mesh(new THREE.BoxGeometry(0.34,6.7,11.5),
+        new THREE.MeshStandardMaterial({color:0x142332,roughness:.68,metalness:.42}));
+      wallSolid.position.copy(wallColumn.position);
+      tunnelFrame.add(wallSolid);
       tunnelFrame.add(wallColumn);
     }
     addWireBox(tunnelFrame, 13.8, 0.2, 11.5, tunnelColors[i % tunnelColors.length], 0.82);
@@ -348,10 +348,13 @@ function addAdvancedEnvironment() {
 
   for (const u of [tunnelStart, tunnelEnd]) {
     const f = trackFrame(u);
-    const portal = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(14.4, 7.4, 0.7)),
+    const portalGeometry=new THREE.BoxGeometry(14.4,7.4,.7);
+    const portal = new THREE.Group();
+    portal.add(new THREE.Mesh(portalGeometry,new THREE.MeshStandardMaterial({color:0x182839,roughness:.62,metalness:.48})));
+    portal.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(portalGeometry),
       new THREE.LineBasicMaterial({ color: 0x7ef6ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending }),
-    );
+    ));
     portal.position.copy(f.point).addScaledVector(f.normal, 3.45);
     portal.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent));
     stageGroup.add(portal);
@@ -359,10 +362,52 @@ function addAdvancedEnvironment() {
 }
 
 function addNeonScenery() {
-  if (stage.id !== "neon-grid") return;
-
   const PYLON_PALETTE = [0x00f5ff, 0xff2d9e, 0x00f5ff, 0xffec00];
   const BOARD_COLORS = [0x00f5ff, 0xff2d9e, 0x9a00ff, 0x00ff9a];
+
+  // Solid track architecture: dark barrier faces with a neon cap. Instancing
+  // keeps this to two draw calls instead of hundreds of individual meshes.
+  const barrierCount = 128;
+  const barrierDepth = oval.getLength() / barrierCount * 1.08;
+  const barrierGeometry = new THREE.BoxGeometry(0.62, 1.35, barrierDepth);
+  const capGeometry = new THREE.BoxGeometry(0.7, 0.09, barrierDepth);
+  const barriers = new THREE.InstancedMesh(
+    barrierGeometry,
+    new THREE.MeshStandardMaterial({ color: 0x151d27, roughness: 0.78, metalness: 0.32 }),
+    barrierCount * 2,
+  );
+  const caps = new THREE.InstancedMesh(
+    capGeometry,
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    barrierCount * 2,
+  );
+  const matrix = new THREE.Matrix4();
+  const scale = new THREE.Vector3(1, 1, 1);
+  let barrierIndex = 0;
+  for (let i = 0; i < barrierCount; i++) {
+    const u = i / barrierCount;
+    for (const side of [-1, 1]) {
+      const f = trackFrame(u, side * (TRACK_WIDTH * 0.5 + 0.62));
+      const rotation = new THREE.Quaternion().setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(f.right, f.normal, f.tangent),
+      );
+      const basePosition = f.point.clone().addScaledVector(f.normal, 0.68);
+      matrix.compose(basePosition, rotation, scale);
+      barriers.setMatrixAt(barrierIndex, matrix);
+
+      const capPosition = f.point.clone().addScaledVector(f.normal, 1.4);
+      matrix.compose(capPosition, rotation, scale);
+      caps.setMatrixAt(barrierIndex, matrix);
+      caps.setColorAt(barrierIndex, new THREE.Color((i + (side > 0 ? 1 : 0)) % 4 < 2 ? 0x35e8ff : 0xff3d8f));
+      barrierIndex++;
+    }
+  }
+  barriers.instanceMatrix.needsUpdate = true;
+  caps.instanceMatrix.needsUpdate = true;
+  if (caps.instanceColor) caps.instanceColor.needsUpdate = true;
+  stageGroup.add(barriers, caps);
+
+  if (stage.id !== "neon-grid") return;
 
   // Energy pylons — 64 total, both sides, every ~62m
   const pylonCount = 32;
@@ -611,7 +656,9 @@ function makeRoad() {
   const uvs: number[] = [];
   const edgeL: THREE.Vector3[] = [];
   const edgeR: THREE.Vector3[] = [];
-  const usesTexturedRoad = stage.id === "neon-grid";
+  const roadTints:Record<string,number>={
+    "neon-grid":0xe4e9f1,"ridge-helix":0xd6c9d2,"blue-neon-shift":0xc7dbe8,"quiet-lake":0xc8d2cd,
+  };
   // Keep the final U coordinate integral so the closed course has no UV jump.
   const textureRepeats = Math.max(1, Math.round(TRACK_LENGTH_METERS / 24));
   for (let i = 0; i <= SEGMENTS; i++) {
@@ -634,11 +681,14 @@ function makeRoad() {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   const roadMaterial = new THREE.MeshStandardMaterial({
-    color: usesTexturedRoad ? 0xaeb9ca : 0xffffff,
-    map: usesTexturedRoad ? neonGridAsphaltTexture : null,
-    vertexColors: !usesTexturedRoad,
-    roughness: usesTexturedRoad ? 0.88 : 0.98,
-    metalness: usesTexturedRoad ? 0.02 : 0.05,
+    color: roadTints[stage.id]??0xd8dde2,
+    map: racingAsphaltTexture,
+    emissive: stage.id === "neon-grid" ? 0x101824 : 0x06080b,
+    emissiveMap: racingAsphaltTexture,
+    emissiveIntensity: stage.id === "neon-grid" ? 0.16 : 0.035,
+    vertexColors: false,
+    roughness: 0.86,
+    metalness: 0.025,
   });
   stageGroup.add(new THREE.Mesh(geometry, roadMaterial));
 
@@ -689,13 +739,14 @@ addNeonScenery();
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
-  new THREE.MeshBasicMaterial({ color: 0x070b1c }),
+  new THREE.MeshStandardMaterial({ color: 0x10151c, roughness: 1, metalness: 0 }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = TRACK_FLOOR_Y;
 stageGroup.add(floor);
 const grid = new THREE.GridHelper(2200, 110, 0x31dff4, 0x174b69);
 grid.position.y = TRACK_FLOOR_Y + 0.04;
+grid.visible = false;
 const gridMaterials = (Array.isArray(grid.material) ? grid.material : [grid.material]) as THREE.LineBasicMaterial[];
 gridMaterials.forEach(material => {
   material.transparent = true;
@@ -2518,6 +2569,10 @@ function switchStage(index: number) {
     patchEffectTexturesAndVisibility();
     floor.position.y = TRACK_FLOOR_Y;
     grid.position.y = TRACK_FLOOR_Y + 0.04;
+    const groundColors:Record<string,number>={
+      "neon-grid":0x111820,"ridge-helix":0x231b22,"blue-neon-shift":0x111b25,"quiet-lake":0x182820,
+    };
+    (floor.material as THREE.MeshStandardMaterial).color.setHex(groundColors[stage.id]??0x15191c);
     stageGroup.add(floor, grid);
     rivals.forEach((rival, i) => {
       rival.topSpeedMps = (stage.aiTopSpeedBaseKmh + (i % 4) * 7 + Math.floor(i / 4) * 4) / 3.6;

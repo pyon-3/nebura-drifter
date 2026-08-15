@@ -2,6 +2,10 @@
 
 A lightweight low-poly neon 3D racer built with TypeScript, Vite, Three.js, and WebGL.
 
+The current renderer uses textured asphalt and solid, lit environment geometry
+for all four courses. Neon lines remain as restrained edge and gameplay accents
+rather than the primary wireframe rendering mode.
+
 ## Play
 
 The GitHub Pages deployment is generated automatically from `main`.
